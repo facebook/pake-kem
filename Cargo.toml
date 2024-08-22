@@ -1,0 +1,18 @@
+[package]
+name = "pake-kem"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pake-cpace = "0.1"
+hkdf = "0.13.0-pre.4"
+rand_core = { version = "0.6", features = ["getrandom"] }
+ml-kem = "0.2"
+kem = "0.3.0-pre.0"
+thiserror = "1"
+
+[dev-dependencies]
+sha2 = "0.11.0-pre.4"
+hex = "0.4"
