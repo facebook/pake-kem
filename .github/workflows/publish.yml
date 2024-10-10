@@ -21,9 +21,9 @@ jobs:
       run: cargo login $CRATES_IO_TOKEN
       env:
         CRATES_IO_TOKEN: ${{ secrets.crates_io_token }}
-    - name: Dry run publish opaque-ke
+    - name: Dry run publish the crate
       run: cargo publish --dry-run --manifest-path Cargo.toml
-    - name: Publish opaque-ke
+    - name: Publish the crate
       run: cargo publish --manifest-path Cargo.toml
       env:
         CARGO_REGISTRY_TOKEN: ${{ secrets.crates_io_token }}
