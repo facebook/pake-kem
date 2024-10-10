@@ -6,6 +6,181 @@
 // of this source tree. You may select, at your option, one of the above-listed
 // licenses.
 
+//! An implementation of a password authenticate key exchange (PAKE) that
+//! relies on quantum-resistant cryptographic primitives
+//!
+//! # Overview
+//!
+//! pake-kem is a protocol between two parties: an initiator and a responder.
+//! At a high level, the initiator and responder each hold as input to the
+//! protocol an [`Input`]. After exchanging the protocol messages, the initiator
+//! and responder end up with an [`Output`]. If the two participants had matching
+//! [`Input`]s, then they will end up with the same [`Output`]. Otherwise,
+//! their [`Output`]s will not match, and in fact be (computationally) uncorrelated.
+//!
+//! # Setup
+//!
+//! In order to execute the protocol, the initiator and responder
+//! must first agree on a collection of primitives to be kept consistent
+//! throughout protocol execution. These include:
+//! * a (classically-secure) two-message PAKE protocol,
+//! * a (quantum-resistant) key encapsulation mechanism, and
+//! * a hashing function.
+//!
+//! We will use the following choices in this example:
+//! ```ignore
+//! use pake_kem::CipherSuite;
+//! struct Default;
+//! impl CipherSuite for Default {
+//!     type Pake = pake_kem::CPaceRistretto255;
+//!     type Kem = ml_kem::MlKem768;
+//!     type Hash = sha2::Sha256;
+//! }
+//! ```
+//! See [examples/demo.rs](https://github.com/facebook/pake-kem/blob/main/examples/demo.rs)
+//! for a working example for using pake-kem.
+//!
+//! Like any symmetric (balanced) PAKE, the initiator and responder will each begin with
+//! their own input, exchange some messages as part of the protocol, and derive a
+//! secret as the output of the protocol.
+//!
+//! If the initiator and responder used the exact same input to the protocol, then
+//! they are guaranteed to end up with the same secret (this would be a "shared secret").
+//!
+//! If the initiator and responder used different inputs, then they will not
+//! end up with the same shared secret (with overwhelming probability).
+//!
+//! The way an input is represented in pake-kem is as follows:
+//!
+//! ```
+//! use pake_kem::Input;
+//! let input = Input {
+//!     password: "password".to_string(),
+//!     initiator_id: "initiator".to_string(),
+//!     responder_id: "responder".to_string(),
+//!     associated_data: Some("ad".to_string()),
+//! };
+//! ```
+//!
+//! # Protocol Execution
+//!
+//! ## Message One
+//!
+//! The initiator begins the protocol by invoking the following with
+//! an [`Input`] and source of randomness:
+//! ```
+//! # use pake_kem::CipherSuite;
+//! # struct Default;
+//! # impl CipherSuite for Default {
+//! #     type Pake = pake_kem::CPaceRistretto255;
+//! #     type Kem = ml_kem::MlKem768;
+//! #     type Hash = sha2::Sha256;
+//! # }
+//! # use pake_kem::Input;
+//! # let input = Input {
+//! #     password: "password".to_string(),
+//! #     initiator_id: "initiator".to_string(),
+//! #     responder_id: "responder".to_string(),
+//! #     associated_data: Some("ad".to_string()),
+//! # };
+//! use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
+//! use pake_kem::Initiator;
+//! use rand_core::OsRng;
+//!
+//! let mut initiator_rng = OsRng;
+//! let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng);
+//! let message_one_bytes = message_one.as_bytes();
+//! // Send message_one_bytes over the wire to the responder
+//! ```
+//!
+//! ## Message Two
+//!
+//! Next, the responder invokes the following with an [`Input`], a [`MessageOne`]
+//! object received from the initiator in the previous step, and a source of
+//! randomness:
+//!
+//! ```
+//! # use pake_kem::CipherSuite;
+//! # struct Default;
+//! # impl CipherSuite for Default {
+//! #     type Pake = pake_kem::CPaceRistretto255;
+//! #     type Kem = ml_kem::MlKem768;
+//! #     type Hash = sha2::Sha256;
+//! # }
+//! # use pake_kem::Input;
+//! # let input = Input {
+//! #     password: "password".to_string(),
+//! #     initiator_id: "initiator".to_string(),
+//! #     responder_id: "responder".to_string(),
+//! #     associated_data: Some("ad".to_string()),
+//! # };
+//! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
+//! # use pake_kem::Initiator;
+//! # use rand_core::OsRng;
+//! #
+//! # let mut initiator_rng = OsRng;
+//! # let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng);
+//! # let message_one_bytes = message_one.as_bytes();
+//! # // Send message_one_bytes over the wire to the responder
+//! use pake_kem::MessageOne;
+//! use pake_kem::Responder;
+//!
+//! let mut responder_rng = OsRng;
+//! let message_one = MessageOne::from_bytes(&message_one_bytes);
+//! let (responder, message_two) =
+//!     Responder::<Default>::start(&input, &message_one, &mut responder_rng);
+//! let message_two_bytes = message_two.as_bytes();
+//! // Send message_two_bytes over the wire to the initiator
+//! ```
+//!
+//! ## Message Three
+//!
+//! Next, the initiator invokes the following with the already-initialized object
+//! retained from [the first step](#message-one), a [`MessageTwo`] object received from the responder
+//! in the previous step, and a source of randomness:
+//!
+//! ```
+//! # use pake_kem::CipherSuite;
+//! # struct Default;
+//! # impl CipherSuite for Default {
+//! #     type Pake = pake_kem::CPaceRistretto255;
+//! #     type Kem = ml_kem::MlKem768;
+//! #     type Hash = sha2::Sha256;
+//! # }
+//! # use pake_kem::Input;
+//! # let input = Input {
+//! #     password: "password".to_string(),
+//! #     initiator_id: "initiator".to_string(),
+//! #     responder_id: "responder".to_string(),
+//! #     associated_data: Some("ad".to_string()),
+//! # };
+//! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
+//! # use pake_kem::Initiator;
+//! # use rand_core::OsRng;
+//! #
+//! # let mut initiator_rng = OsRng;
+//! # let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng);
+//! # let message_one_bytes = message_one.as_bytes();
+//! # // Send message_one_bytes over the wire to the responder
+//! # use pake_kem::MessageOne;
+//! # use pake_kem::Responder;
+//! #
+//! # let mut responder_rng = OsRng;
+//! # let message_one = MessageOne::from_bytes(&message_one_bytes);
+//! # let (responder, message_two) =
+//! #     Responder::<Default>::start(&input, &message_one, &mut responder_rng);
+//! # let message_two_bytes = message_two.as_bytes();
+//! # // Send message_two_bytes over the wire to the initiator
+//! use pake_kem::MessageTwo;
+//!
+//! let message_two = MessageTwo::from_bytes(&message_two_bytes);
+//! let (initiator_output, message_three) =
+//!     initiator.finish(&message_two, &mut initiator_rng);
+//! let message_three_bytes = message_three.as_bytes();
+//! # // Send message_three_bytes over the wire to the responder
+//! ```
+//!
+
 use core::ops::{Add, Sub};
 
 use crate::hash::{Hash, ProxyHash};
@@ -22,8 +197,9 @@ use hkdf::hmac::{EagerHash, Hmac, KeyInit, Mac};
 use hkdf::HkdfExtract;
 use kem::{Decapsulate, Encapsulate};
 use ml_kem::ArraySize;
+use ml_kem::Encoded;
+pub use ml_kem::EncodedSizeUser;
 use ml_kem::{Ciphertext, KemCore};
-use ml_kem::{Encoded, EncodedSizeUser};
 use rand_core::{CryptoRng, RngCore};
 
 mod errors;
