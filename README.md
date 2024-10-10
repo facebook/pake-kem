@@ -1,6 +1,6 @@
 ## pake-kem ![Build Status](https://github.com/facebook/pake-kem/workflows/CI/badge.svg)
 
-An implementation of a password-authenticated key exchange (PAKE) based from a KEM (key encapsulation mechanism).
+An implementation of a password-authenticated key exchange (PAKE) based from a key encapsulation mechanism (KEM).
 
 Documentation
 -------------
