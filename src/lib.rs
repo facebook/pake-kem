@@ -58,7 +58,6 @@
 //!     password: "password".to_string(),
 //!     initiator_id: "initiator".to_string(),
 //!     responder_id: "responder".to_string(),
-//!     associated_data: Some("ad".to_string()),
 //! };
 //! ```
 //!
@@ -81,7 +80,6 @@
 //! #     password: "password".to_string(),
 //! #     initiator_id: "initiator".to_string(),
 //! #     responder_id: "responder".to_string(),
-//! #     associated_data: Some("ad".to_string()),
 //! # };
 //! use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! use pake_kem::Initiator;
@@ -112,7 +110,6 @@
 //! #     password: "password".to_string(),
 //! #     initiator_id: "initiator".to_string(),
 //! #     responder_id: "responder".to_string(),
-//! #     associated_data: Some("ad".to_string()),
 //! # };
 //! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! # use pake_kem::Initiator;
@@ -152,7 +149,6 @@
 //! #     password: "password".to_string(),
 //! #     initiator_id: "initiator".to_string(),
 //! #     responder_id: "responder".to_string(),
-//! #     associated_data: Some("ad".to_string()),
 //! # };
 //! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! # use pake_kem::Initiator;
@@ -181,6 +177,9 @@
 //! ```
 //!
 
+#![allow(dead_code)]
+#![allow(non_snake_case)]
+
 use core::ops::{Add, Sub};
 
 use crate::hash::{Hash, ProxyHash};
@@ -200,6 +199,7 @@ use ml_kem::ArraySize;
 use ml_kem::Encoded;
 pub use ml_kem::EncodedSizeUser;
 use ml_kem::{Ciphertext, KemCore};
+pub use rand_core;
 use rand_core::{CryptoRng, RngCore};
 
 mod errors;
@@ -215,6 +215,13 @@ pub trait CipherSuite {
     type Hash: BlockSizeUser + FixedOutput + Default + HashMarker + EagerHash;
 }
 
+pub struct DefaultCipherSuite;
+impl CipherSuite for DefaultCipherSuite {
+    type Pake = CPaceRistretto255;
+    type Kem = ml_kem::MlKem768;
+    type Hash = sha2::Sha256;
+}
+
 pub trait Serializable: Sized {
     fn to_bytes(self) -> Vec<u8>;
     fn from_bytes(input: &[u8]) -> Result<Self>;
@@ -224,7 +231,6 @@ pub struct Input {
     pub password: String,
     pub initiator_id: String,
     pub responder_id: String,
-    pub associated_data: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -243,8 +249,8 @@ where
     <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
     Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
 {
-    pub fn start<R: RngCore + CryptoRng>(input: &Input, _rng: &mut R) -> (Self, MessageOne<CS>) {
-        let (init_message, state) = CS::Pake::init(input);
+    pub fn start<R: RngCore + CryptoRng>(input: &Input, rng: &mut R) -> (Self, MessageOne<CS>) {
+        let (init_message, state) = CS::Pake::init(input, rng);
 
         (Self { state }, MessageOne { init_message })
     }
@@ -255,9 +261,10 @@ where
         rng: &mut R,
     ) -> (Output, MessageThree<CS>) {
         let pake_output = self.state.recv(&message_two.respond_message);
+        let (mac_key, enc_key) = pake_output_into_keys(pake_output, rng);
 
         // First, check the mac on ek
-        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&pake_output[..32]).unwrap();
+        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&mac_key).unwrap();
         mac_verifier.update(&message_two.ek.as_bytes());
         mac_verifier.verify_slice(&message_two.ek_tag).unwrap();
 
@@ -266,7 +273,7 @@ where
         let (ct, k_send) = message_two.ek.encapsulate(rng).unwrap();
 
         // Next, construct another mac
-        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&pake_output[..32]).unwrap();
+        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&mac_key).unwrap();
         mac_builder.update(&message_two.ek.as_bytes());
         mac_builder.update(ct.as_slice());
         mac_builder.update(k_send.as_slice());
@@ -275,8 +282,8 @@ where
         let mut hkdf = HkdfExtract::<CS::Hash>::new(None);
         hkdf.input_ikm(&message_two.ek.as_bytes());
         hkdf.input_ikm(ct.as_slice());
-        hkdf.input_ikm(&pake_output[..32]);
-        hkdf.input_ikm(&pake_output[32..]);
+        hkdf.input_ikm(&mac_key);
+        hkdf.input_ikm(&enc_key);
         hkdf.input_ikm(k_send.as_slice());
         let (res, _) = hkdf.finalize();
 
@@ -285,7 +292,8 @@ where
 }
 
 pub struct Responder<CS: CipherSuite> {
-    pake_output: PakeOutput,
+    mac_key: [u8; 32],
+    enc_key: [u8; 32],
     dk: <CS::Kem as KemCore>::DecapsulationKey,
     ek: <CS::Kem as KemCore>::EncapsulationKey,
 }
@@ -304,20 +312,23 @@ where
         message_one: &MessageOne<CS>,
         rng: &mut R,
     ) -> (Self, MessageTwo<CS>) {
-        let (pake_output, respond_message) = CS::Pake::respond(input, &message_one.init_message);
+        let (pake_output, respond_message) =
+            CS::Pake::respond(input, &message_one.init_message, rng);
+        let (mac_key, enc_key) = pake_output_into_keys(pake_output, rng);
 
         let (decapsulation_key, encapsulation_key) = CS::Kem::generate(rng);
 
         let ek_bytes = encapsulation_key.as_bytes();
         let ek_cloned = <CS::Kem as KemCore>::EncapsulationKey::from_bytes(&ek_bytes);
 
-        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&pake_output[..32]).unwrap();
+        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&mac_key).unwrap();
         mac_builder.update(&ek_bytes);
         let mac = mac_builder.finalize().into_bytes();
 
         (
             Self {
-                pake_output,
+                mac_key,
+                enc_key,
                 dk: decapsulation_key,
                 ek: ek_cloned,
             },
@@ -332,7 +343,7 @@ where
     pub fn finish(self, message_three: &MessageThree<CS>) -> Output {
         let k_recv = self.dk.decapsulate(&message_three.ct).unwrap();
 
-        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&self.pake_output[..32]).unwrap();
+        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&self.mac_key).unwrap();
         mac_verifier.update(&self.ek.as_bytes());
         mac_verifier.update(message_three.ct.as_slice());
         mac_verifier.update(k_recv.as_slice());
@@ -341,13 +352,30 @@ where
         let mut hkdf = HkdfExtract::<CS::Hash>::new(None);
         hkdf.input_ikm(&self.ek.as_bytes());
         hkdf.input_ikm(message_three.ct.as_slice());
-        hkdf.input_ikm(&self.pake_output[..32]);
-        hkdf.input_ikm(&self.pake_output[32..]);
+        hkdf.input_ikm(&self.mac_key);
+        hkdf.input_ikm(&self.enc_key);
         hkdf.input_ikm(k_recv.as_slice());
         let (res, _) = hkdf.finalize();
 
         Output(res.to_vec())
     }
+}
+
+fn pake_output_into_keys<R: RngCore + CryptoRng>(
+    pake_output: Option<PakeOutput>,
+    rng: &mut R,
+) -> ([u8; 32], [u8; 32]) {
+    let mut key1 = [0u8; 32];
+    let mut key2 = [0u8; 32];
+    rng.fill_bytes(&mut key1);
+    rng.fill_bytes(&mut key2);
+
+    if let Some(pake_output) = pake_output {
+        key1.copy_from_slice(&pake_output[..32]);
+        key2.copy_from_slice(&pake_output[32..]);
+    }
+
+    (key1, key2)
 }
 
 pub struct MessageOne<CS: CipherSuite> {
