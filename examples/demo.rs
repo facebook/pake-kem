@@ -7,35 +7,27 @@
 // licenses.
 
 use ml_kem::EncodedSizeUser;
-use pake_kem::CPaceRistretto255;
-use pake_kem::CipherSuite;
+use pake_kem::rand_core::OsRng;
+use pake_kem::DefaultCipherSuite;
 use pake_kem::Initiator;
 use pake_kem::Input;
 use pake_kem::MessageOne;
 use pake_kem::MessageThree;
 use pake_kem::MessageTwo;
 use pake_kem::Responder;
-use rand_core::OsRng;
 
 fn main() {
     let input = Input {
         password: "password".to_string(),
         initiator_id: "initiator".to_string(),
         responder_id: "responder".to_string(),
-        associated_data: Some("ad".to_string()),
     };
-
-    struct Default;
-    impl CipherSuite for Default {
-        type Pake = CPaceRistretto255;
-        type Kem = ml_kem::MlKem768;
-        type Hash = sha2::Sha256;
-    }
 
     let mut initiator_rng = OsRng;
     let mut responder_rng = OsRng;
 
-    let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng);
+    let (initiator, message_one) =
+        Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng);
 
     let message_one_serialized = message_one.as_bytes();
     println!(
@@ -44,8 +36,11 @@ fn main() {
     );
     let message_one_deserialized = MessageOne::from_bytes(&message_one_serialized);
 
-    let (responder, message_two) =
-        Responder::<Default>::start(&input, &message_one_deserialized, &mut responder_rng);
+    let (responder, message_two) = Responder::<DefaultCipherSuite>::start(
+        &input,
+        &message_one_deserialized,
+        &mut responder_rng,
+    );
 
     let message_two_serialized = message_two.as_bytes();
     println!(
