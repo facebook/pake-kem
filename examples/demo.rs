@@ -17,11 +17,7 @@ use pake_kem::MessageTwo;
 use pake_kem::Responder;
 
 fn main() {
-    let input = Input {
-        password: "password".to_string(),
-        initiator_id: "initiator".to_string(),
-        responder_id: "responder".to_string(),
-    };
+    let input = Input::new(b"password", b"initiator", b"responder");
 
     let mut initiator_rng = OsRng;
     let mut responder_rng = OsRng;
@@ -29,9 +25,17 @@ fn main() {
     let (initiator, message_one) =
         Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng);
 
+    let initiator_serialized = initiator.as_bytes();
+    println!(
+        "initiator bytes ({} bytes): {:?}",
+        initiator_serialized.len(),
+        hex::encode(initiator_serialized)
+    );
+
     let message_one_serialized = message_one.as_bytes();
     println!(
-        "message_one bytes: {:?}",
+        "message_one bytes ({} bytes): {:?}",
+        message_one_serialized.len(),
         hex::encode(message_one_serialized)
     );
     let message_one_deserialized = MessageOne::from_bytes(&message_one_serialized);
@@ -41,25 +45,41 @@ fn main() {
         &message_one_deserialized,
         &mut responder_rng,
     );
+    let responder_serialized = responder.as_bytes();
+    println!(
+        "responder bytes ({} bytes): {:?}",
+        responder_serialized.len(),
+        hex::encode(responder_serialized)
+    );
 
     let message_two_serialized = message_two.as_bytes();
     println!(
-        "message_two bytes: {:?}",
+        "message_two bytes ({} bytes): {:?}",
+        message_two_serialized.len(),
         hex::encode(message_two_serialized)
     );
     let message_two_deserialized = MessageTwo::from_bytes(&message_two_serialized);
 
+    let initiator = Initiator::<DefaultCipherSuite>::from_bytes(&initiator_serialized);
     let (initiator_output, message_three) =
         initiator.finish(&message_two_deserialized, &mut initiator_rng);
 
     let message_three_serialized = message_three.as_bytes();
     println!(
-        "message_three bytes: {:?}",
+        "message_three bytes ({} bytes): {:?}",
+        message_three_serialized.len(),
         hex::encode(message_three_serialized)
     );
     let message_three_deserialized = MessageThree::from_bytes(&message_three_serialized);
 
-    let responder_output = responder.finish(&message_three_deserialized);
+    let responder_output = Responder::<DefaultCipherSuite>::from_bytes(&responder_serialized)
+        .finish(&message_three_deserialized);
+
+    println!(
+        "initiator_output: ({} bytes): {:?}",
+        initiator_output.0.len(),
+        initiator_output
+    );
 
     assert_eq!(initiator_output, responder_output);
 }

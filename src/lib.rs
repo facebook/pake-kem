@@ -54,11 +54,7 @@
 //!
 //! ```
 //! use pake_kem::Input;
-//! let input = Input {
-//!     password: "password".to_string(),
-//!     initiator_id: "initiator".to_string(),
-//!     responder_id: "responder".to_string(),
-//! };
+//! let input = Input::new(b"password", b"initiator", b"responder");
 //! ```
 //!
 //! # Protocol Execution
@@ -76,11 +72,7 @@
 //! #     type Hash = sha2::Sha256;
 //! # }
 //! # use pake_kem::Input;
-//! # let input = Input {
-//! #     password: "password".to_string(),
-//! #     initiator_id: "initiator".to_string(),
-//! #     responder_id: "responder".to_string(),
-//! # };
+//! # let input = Input::new(b"password", b"initiator", b"responder");
 //! use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! use pake_kem::Initiator;
 //! use rand_core::OsRng;
@@ -106,11 +98,7 @@
 //! #     type Hash = sha2::Sha256;
 //! # }
 //! # use pake_kem::Input;
-//! # let input = Input {
-//! #     password: "password".to_string(),
-//! #     initiator_id: "initiator".to_string(),
-//! #     responder_id: "responder".to_string(),
-//! # };
+//! # let input = Input::new(b"password", b"initiator", b"responder");
 //! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! # use pake_kem::Initiator;
 //! # use rand_core::OsRng;
@@ -145,11 +133,7 @@
 //! #     type Hash = sha2::Sha256;
 //! # }
 //! # use pake_kem::Input;
-//! # let input = Input {
-//! #     password: "password".to_string(),
-//! #     initiator_id: "initiator".to_string(),
-//! #     responder_id: "responder".to_string(),
-//! # };
+//! # let input = Input::new(b"password", b"initiator", b"responder");
 //! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! # use pake_kem::Initiator;
 //! # use rand_core::OsRng;
@@ -186,9 +170,9 @@ use crate::hash::{Hash, ProxyHash};
 use crate::pake::Pake;
 use crate::pake::PakeOutput;
 use errors::PakeKemError;
-use hkdf::hmac::digest::array::Array;
+pub use hkdf::hmac::digest::array::Array;
 use hkdf::hmac::digest::core_api::{BlockSizeUser, CoreProxy};
-use hkdf::hmac::digest::typenum::{IsLess, IsLessOrEqual, Le, NonZero, Sum, U256};
+use hkdf::hmac::digest::typenum::{IsLess, IsLessOrEqual, Le, NonZero, Sum, U256, U64};
 use hkdf::hmac::digest::FixedOutput;
 use hkdf::hmac::digest::HashMarker;
 use hkdf::hmac::digest::OutputSizeUser;
@@ -228,17 +212,25 @@ pub trait Serializable: Sized {
 }
 
 pub struct Input {
-    pub password: String,
-    pub initiator_id: String,
-    pub responder_id: String,
+    pub password: Vec<u8>,
+    pub initiator_id: Vec<u8>,
+    pub responder_id: Vec<u8>,
+}
+
+impl Input {
+    pub fn new(password: &[u8], initiator_id: &[u8], responder_id: &[u8]) -> Self {
+        Self {
+            password: password.to_vec(),
+            initiator_id: initiator_id.to_vec(),
+            responder_id: responder_id.to_vec(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Output(Vec<u8>);
+pub struct Output(pub Vec<u8>);
 
-pub struct Initiator<CS: CipherSuite> {
-    state: CS::Pake,
-}
+pub struct Initiator<CS: CipherSuite>(CS::Pake);
 
 impl<CS: CipherSuite> Initiator<CS>
 where
@@ -252,7 +244,7 @@ where
     pub fn start<R: RngCore + CryptoRng>(input: &Input, rng: &mut R) -> (Self, MessageOne<CS>) {
         let (init_message, state) = CS::Pake::init(input, rng);
 
-        (Self { state }, MessageOne { init_message })
+        (Self(state), MessageOne { init_message })
     }
 
     pub fn finish<R: RngCore + CryptoRng>(
@@ -260,8 +252,8 @@ where
         message_two: &MessageTwo<CS>,
         rng: &mut R,
     ) -> (Output, MessageThree<CS>) {
-        let pake_output = self.state.recv(&message_two.respond_message);
-        let (mac_key, enc_key) = pake_output_into_keys(pake_output, rng);
+        let pake_output = self.0.recv(&message_two.respond_message);
+        let (mac_key, session_key) = pake_output_into_keys(pake_output, rng);
 
         // First, check the mac on ek
         let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&mac_key).unwrap();
@@ -283,7 +275,7 @@ where
         hkdf.input_ikm(&message_two.ek.as_bytes());
         hkdf.input_ikm(ct.as_slice());
         hkdf.input_ikm(&mac_key);
-        hkdf.input_ikm(&enc_key);
+        hkdf.input_ikm(&session_key);
         hkdf.input_ikm(k_send.as_slice());
         let (res, _) = hkdf.finalize();
 
@@ -293,7 +285,7 @@ where
 
 pub struct Responder<CS: CipherSuite> {
     mac_key: [u8; 32],
-    enc_key: [u8; 32],
+    session_key: [u8; 32],
     dk: <CS::Kem as KemCore>::DecapsulationKey,
     ek: <CS::Kem as KemCore>::EncapsulationKey,
 }
@@ -328,7 +320,7 @@ where
         (
             Self {
                 mac_key,
-                enc_key,
+                session_key: enc_key,
                 dk: decapsulation_key,
                 ek: ek_cloned,
             },
@@ -353,7 +345,7 @@ where
         hkdf.input_ikm(&self.ek.as_bytes());
         hkdf.input_ikm(message_three.ct.as_slice());
         hkdf.input_ikm(&self.mac_key);
-        hkdf.input_ikm(&self.enc_key);
+        hkdf.input_ikm(&self.session_key);
         hkdf.input_ikm(k_recv.as_slice());
         let (res, _) = hkdf.finalize();
 
@@ -521,5 +513,81 @@ where
 
     fn as_bytes(&self) -> Encoded<Self> {
         self.ct.clone().concat(self.ct_tag.clone())
+    }
+}
+
+impl<CS: CipherSuite> EncodedSizeUser for Initiator<CS> {
+    type EncodedSize = <CS::Pake as EncodedSizeUser>::EncodedSize;
+
+    fn from_bytes(enc: &Encoded<Self>) -> Self {
+        Self(CS::Pake::from_bytes(enc))
+    }
+
+    fn as_bytes(&self) -> Encoded<Self> {
+        self.0.as_bytes()
+    }
+}
+
+impl<CS: CipherSuite> EncodedSizeUser for Responder<CS>
+where
+    // Concatenation clauses
+    <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize:
+        Add<<<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize>,
+    Sum<
+        <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
+        <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
+    >: ArraySize
+        + Add<U64>
+        + Sub<
+            <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
+            Output = <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
+        >,
+    Sum<
+        Sum<
+            <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
+            <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
+        >,
+        U64,
+    >: ArraySize
+        + Sub<
+            Sum<
+                <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
+                <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
+            >,
+            Output = U64,
+        >,
+{
+    type EncodedSize = Sum<
+        Sum<
+            <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
+            <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
+        >,
+        U64,
+    >;
+
+    fn from_bytes(enc: &Encoded<Self>) -> Self {
+        let (enc, both_keys) = enc.split_ref();
+        let (dk_bytes, ek_bytes) = enc.split_ref();
+        let mut mac_key: [u8; 32] = [0u8; 32];
+        mac_key.copy_from_slice(&both_keys[..32]);
+        let mut session_key: [u8; 32] = [0u8; 32];
+        session_key.copy_from_slice(&both_keys[32..]);
+
+        Self {
+            mac_key,
+            session_key,
+            dk: <CS::Kem as KemCore>::DecapsulationKey::from_bytes(dk_bytes),
+            ek: <CS::Kem as KemCore>::EncapsulationKey::from_bytes(ek_bytes),
+        }
+    }
+
+    fn as_bytes(&self) -> Encoded<Self> {
+        let mut both_keys = Array::<u8, U64>::default();
+        both_keys[..32].copy_from_slice(&self.mac_key);
+        both_keys[32..].copy_from_slice(&self.session_key);
+        self.dk
+            .as_bytes()
+            .concat(self.ek.as_bytes())
+            .concat(both_keys)
     }
 }

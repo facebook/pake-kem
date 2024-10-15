@@ -16,10 +16,10 @@ pub use cpace::CPaceRistretto255;
 use ml_kem::EncodedSizeUser;
 use rand_core::{CryptoRng, RngCore};
 
-const PAKE_OUTPUT_SIZE: usize = 64;
+pub(crate) const PAKE_OUTPUT_SIZE: usize = 64;
 pub type PakeOutput = [u8; PAKE_OUTPUT_SIZE];
 
-pub trait Pake {
+pub trait Pake: EncodedSizeUser {
     type InitMessage: EncodedSizeUser + Debug + PartialEq;
     type RespondMessage: EncodedSizeUser + Debug + PartialEq;
 
