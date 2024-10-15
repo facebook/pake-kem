@@ -11,7 +11,7 @@ use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::traits::Identity;
 use curve25519_dalek::Scalar;
-use hkdf::hmac::digest::array::typenum::U32;
+use hkdf::hmac::digest::array::typenum::{U32, U64};
 use ml_kem::{Encoded, EncodedSizeUser};
 use rand_core::{CryptoRng, RngCore};
 use sha2::Digest;
@@ -26,8 +26,8 @@ const SID_OUTPUT: &[u8; 14] = b"CPaceSidOutput";
 const SHA512_S_IN_BYTES: i32 = 128;
 
 pub struct CPaceRistretto255 {
-    scalar: Scalar,
     init_message_bytes: [u8; 32],
+    scalar: Scalar,
 }
 
 #[derive(Debug, PartialEq)]
@@ -64,17 +64,39 @@ impl EncodedSizeUser for CPaceRistretto255RespondMessage {
     }
 }
 
+impl EncodedSizeUser for CPaceRistretto255 {
+    type EncodedSize = U64;
+
+    fn from_bytes(enc: &Encoded<Self>) -> Self {
+        let mut arr = [0u8; 32];
+        arr.clone_from_slice(&enc[..32]);
+        let mut scalar_bytes = [0u8; 32];
+        scalar_bytes.clone_from_slice(&enc[32..]);
+        Self {
+            init_message_bytes: arr,
+            scalar: Scalar::from_bytes_mod_order(scalar_bytes),
+        }
+    }
+
+    fn as_bytes(&self) -> Encoded<Self> {
+        let mut arr = [0u8; 64];
+        arr[..32].clone_from_slice(&self.init_message_bytes);
+        arr[32..].clone_from_slice(&self.scalar.to_bytes());
+        arr.into()
+    }
+}
+
 impl Pake for CPaceRistretto255 {
     type InitMessage = CPaceRistretto255InitMessage;
     type RespondMessage = CPaceRistretto255RespondMessage;
 
     fn init<R: RngCore + CryptoRng>(input: &Input, rng: &mut R) -> (Self::InitMessage, Self) {
         let context = [
-            prepend_len(input.initiator_id.as_bytes()),
-            prepend_len(input.responder_id.as_bytes()),
+            prepend_len(&input.initiator_id),
+            prepend_len(&input.responder_id),
         ]
         .concat();
-        let g = calculate_generator(input.password.as_bytes(), &context, &[]);
+        let g = calculate_generator(&input.password, &context, &[]);
         let scalar = Scalar::random(rng);
         let message = initiator_message_from_generator(&g, scalar);
         let init_message_bytes = message.compress().to_bytes();
@@ -82,8 +104,8 @@ impl Pake for CPaceRistretto255 {
         (
             CPaceRistretto255InitMessage(init_message_bytes),
             Self {
-                scalar,
                 init_message_bytes,
+                scalar,
             },
         )
     }
@@ -94,11 +116,11 @@ impl Pake for CPaceRistretto255 {
         rng: &mut R,
     ) -> (Option<PakeOutput>, Self::RespondMessage) {
         let context = [
-            prepend_len(input.initiator_id.as_bytes()),
-            prepend_len(input.responder_id.as_bytes()),
+            prepend_len(&input.initiator_id),
+            prepend_len(&input.responder_id),
         ]
         .concat();
-        let g = calculate_generator(input.password.as_bytes(), &context, &[]);
+        let g = calculate_generator(&input.password, &context, &[]);
         let scalar = Scalar::random(rng);
         let message = responder_message_from_generator(&g, scalar);
         let respond_message_bytes = message.compress().to_bytes();
