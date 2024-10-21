@@ -23,7 +23,8 @@ fn main() {
     let mut responder_rng = OsRng;
 
     let (initiator, message_one) =
-        Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng);
+        Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng)
+            .expect("Error with Initiator::start()");
 
     let initiator_serialized = initiator.as_bytes();
     println!(
@@ -44,7 +45,8 @@ fn main() {
         &input,
         &message_one_deserialized,
         &mut responder_rng,
-    );
+    )
+    .expect("Error with Responder::start()");
     let responder_serialized = responder.as_bytes();
     println!(
         "responder bytes ({} bytes): {:?}",
@@ -61,8 +63,9 @@ fn main() {
     let message_two_deserialized = MessageTwo::from_bytes(&message_two_serialized);
 
     let initiator = Initiator::<DefaultCipherSuite>::from_bytes(&initiator_serialized);
-    let (initiator_output, message_three) =
-        initiator.finish(&message_two_deserialized, &mut initiator_rng);
+    let (initiator_output, message_three) = initiator
+        .finish(&message_two_deserialized, &mut initiator_rng)
+        .expect("Error with Initiator::finish()");
 
     let message_three_serialized = message_three.as_bytes();
     println!(
@@ -73,7 +76,8 @@ fn main() {
     let message_three_deserialized = MessageThree::from_bytes(&message_three_serialized);
 
     let responder_output = Responder::<DefaultCipherSuite>::from_bytes(&responder_serialized)
-        .finish(&message_three_deserialized);
+        .finish(&message_three_deserialized)
+        .expect("Error with Responder::finish()");
 
     println!(
         "initiator_output: ({} bytes): {:?}",

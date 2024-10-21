@@ -14,6 +14,7 @@ use curve25519_dalek::Scalar;
 use serde_json::Value;
 
 mod cpace_test_vectors;
+mod test_serialization;
 
 fn rfc_to_json(input: &str) -> Value {
     let mut output = String::new();
@@ -73,38 +74,6 @@ fn test_lv_cat() {
 }
 
 #[test]
-fn test_lexicographically_larger() {
-    /*
-    Taken from: <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.html#appendix-A.3.3>
-    lexiographically_larger(b"\0", b"\0\0") == False
-    lexiographically_larger(b"\1", b"\0\0") == True
-    lexiographically_larger(b"\0\0", b"\0") == True
-    lexiographically_larger(b"\0\0", b"\1") == False
-    lexiographically_larger(b"\0\1", b"\1") == False
-    lexiographically_larger(b"ABCD", b"BCD") == False
-    */
-    assert!(!lexiographically_larger(b"\x00", b"\x00\x00"));
-    assert!(lexiographically_larger(b"\x01", b"\x00\x00"));
-    assert!(lexiographically_larger(b"\x00\x00", b"\x00"));
-    assert!(!lexiographically_larger(b"\x00\x00", b"\x01"));
-    assert!(!lexiographically_larger(b"\x00\x01", b"\x01"));
-    assert!(!lexiographically_larger(b"ABCD", b"BCD"));
-}
-
-#[test]
-fn test_o_cat() {
-    /*
-    Taken from: <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.html#appendix-A.3.3>
-      o_cat(b"ABCD",b"BCD"): (length: 9 bytes)
-        6f6342434441424344
-      o_cat(b"BCD",b"ABCDE"): (length: 10 bytes)
-        6f634243444142434445
-    */
-    assert_eq!("6f6342434441424344", hex::encode(o_cat(b"ABCD", b"BCD")));
-    assert_eq!("6f634243444142434445", hex::encode(o_cat(b"BCD", b"ABCDE")));
-}
-
-#[test]
 fn test_transcript_ir() {
     /*
     Taken from <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.html#appendix-A.3.5>
@@ -122,27 +91,6 @@ fn test_transcript_ir() {
     assert_eq!(
         "043334353606506172747941043233343506506172747942",
         hex::encode(transcript_ir(b"3456", b"PartyA", b"2345", b"PartyB"))
-    );
-}
-
-#[test]
-fn test_transcript_oc() {
-    /*
-    Taken from <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.html#appendix-A.3.7>
-        transcript_oc(b"123", b"PartyA", b"234",b"PartyB"):
-        (length: 24 bytes)
-            6f6303323334065061727479420331323306506172747941
-        transcript_oc(b"3456",b"PartyA",b"2345",b"PartyB"):
-        (length: 26 bytes)
-            6f63043334353606506172747941043233343506506172747942
-    */
-    assert_eq!(
-        "6f6303323334065061727479420331323306506172747941",
-        hex::encode(transcript_oc(b"123", b"PartyA", b"234", b"PartyB"))
-    );
-    assert_eq!(
-        "6f63043334353606506172747941043233343506506172747942",
-        hex::encode(transcript_oc(b"3456", b"PartyA", b"2345", b"PartyB"))
     );
 }
 
@@ -313,22 +261,6 @@ fn test_calculate_isk() {
         hex::encode(calculate_isk(
             &hex::decode(parse_json_key(&vectors, "sid")).unwrap(),
             &hex::decode(parse_json_key(&vectors, "K")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "Ya")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "ADa")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "Yb")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "ADb")).unwrap(),
-        ))
-    );
-}
-
-#[test]
-fn test_sid_output() {
-    let vectors = rfc_to_json(cpace_test_vectors::TEST_VECTORS);
-    println!("{}", serde_json::to_string_pretty(&vectors).unwrap());
-
-    assert_eq!(
-        parse_json_key(&vectors, "sid_output_ir"),
-        hex::encode(calculate_sid_output(
             &hex::decode(parse_json_key(&vectors, "Ya")).unwrap(),
             &hex::decode(parse_json_key(&vectors, "ADa")).unwrap(),
             &hex::decode(parse_json_key(&vectors, "Yb")).unwrap(),

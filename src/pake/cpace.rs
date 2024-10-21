@@ -20,11 +20,11 @@ use sha2::Sha512;
 /// Constant defined in <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.html#section-7.3>
 const DSI: &[u8; 17] = b"CPaceRistretto255";
 const DSI_ISK: &[u8; 21] = b"CPaceRistretto255_ISK";
-const SID_OUTPUT: &[u8; 14] = b"CPaceSidOutput";
 
 /// Constant defined in <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.html#section-5.1>
 const SHA512_S_IN_BYTES: i32 = 128;
 
+/// An implementation of the `CPace` protocol using Ristretto255 and SHA-512.
 pub struct CPaceRistretto255 {
     init_message_bytes: [u8; 32],
     scalar: Scalar,
@@ -265,14 +265,14 @@ pub(crate) fn scalar_mult_vfy(point_bytes: &[u8], scalar: &Scalar) -> RistrettoP
 
 pub(crate) fn calculate_isk(
     sid: &[u8],
-    K: &[u8],
-    Ya: &[u8],
-    ADa: &[u8],
-    Yb: &[u8],
-    ADb: &[u8],
+    k: &[u8],
+    ya: &[u8],
+    ada: &[u8],
+    yb: &[u8],
+    adb: &[u8],
 ) -> [u8; 64] {
-    let prefix = lv_cat(&[&DSI_ISK[..], sid, K]);
-    let transcript = transcript_ir(Ya, ADa, Yb, ADb);
+    let prefix = lv_cat(&[&DSI_ISK[..], sid, k]);
+    let transcript = transcript_ir(ya, ada, yb, adb);
     let mut hasher = Sha512::new();
     hasher.update(prefix);
     hasher.update(transcript);
@@ -280,14 +280,6 @@ pub(crate) fn calculate_isk(
     let mut output = [0u8; 64];
     output.copy_from_slice(&hasher.finalize());
     output
-}
-
-pub(crate) fn calculate_sid_output(Ya: &[u8], ADa: &[u8], Yb: &[u8], ADb: &[u8]) -> Vec<u8> {
-    let transcript = transcript_ir(Ya, ADa, Yb, ADb);
-    let mut hasher = Sha512::new();
-    hasher.update(SID_OUTPUT);
-    hasher.update(transcript);
-    hasher.finalize().to_vec()
 }
 
 /*
@@ -298,41 +290,4 @@ def transcript_ir(Ya,ADa,Yb,ADb):
 */
 pub(crate) fn transcript_ir(ya: &[u8], ada: &[u8], yb: &[u8], adb: &[u8]) -> Vec<u8> {
     [lv_cat(&[ya, ada]), lv_cat(&[yb, adb])].concat()
-}
-
-/*
-Taken from <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.html#appendix-A.3.6>
-def transcript_oc(Ya,ADa,Yb,ADb):
-    result = o_cat(lv_cat(Ya,ADa),lv_cat(Yb,ADb))
-    return result
-*/
-pub(crate) fn transcript_oc(ya: &[u8], ada: &[u8], yb: &[u8], adb: &[u8]) -> Vec<u8> {
-    o_cat(&lv_cat(&[ya, ada]), &lv_cat(&[yb, adb]))
-}
-
-/*
-Taken from <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.html#appendix-A.3.2>
-  def o_cat(bytes1,bytes2):
-      if lexiographically_larger(bytes1,bytes2):
-          return b"oc" + bytes1 + bytes2
-      else:
-          return b"oc" + bytes2 + bytes1
-*/
-pub(crate) fn o_cat(bytes1: &[u8], bytes2: &[u8]) -> Vec<u8> {
-    let mut result = Vec::new();
-    if lexiographically_larger(bytes1, bytes2) {
-        result.extend_from_slice(b"oc");
-        result.extend_from_slice(bytes1);
-        result.extend_from_slice(bytes2);
-    } else {
-        result.extend_from_slice(b"oc");
-        result.extend_from_slice(bytes2);
-        result.extend_from_slice(bytes1);
-    }
-    result
-}
-
-// Comparison logic: <https://doc.rust-lang.org/std/cmp/trait.Ord.html#lexicographical-comparison>
-pub(crate) fn lexiographically_larger(bytes1: &[u8], bytes2: &[u8]) -> bool {
-    bytes1 > bytes2
 }
