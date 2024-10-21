@@ -9,6 +9,8 @@
 //! An implementation of a password authenticate key exchange (PAKE) that
 //! relies on quantum-resistant cryptographic primitives
 //!
+//! ⚠️ **Warning**: This implementation has not been audited. Use at your own risk!
+//!
 //! # Overview
 //!
 //! pake-kem is a protocol between two parties: an initiator and a responder.
@@ -50,7 +52,7 @@
 //! If the initiator and responder used different inputs, then they will not
 //! end up with the same shared secret (with overwhelming probability).
 //!
-//! The way an input is represented in pake-kem is as follows:
+//! The way an input is created in pake-kem is as follows:
 //!
 //! ```
 //! use pake_kem::Input;
@@ -59,7 +61,10 @@
 //!
 //! # Protocol Execution
 //!
-//! ## Message One
+//! The pake-kem protocol occurs over four steps, involving three
+//! messages between the initiator and responder.
+//!
+//! ## Initiator Start
 //!
 //! The initiator begins the protocol by invoking the following with
 //! an [`Input`] and source of randomness:
@@ -78,12 +83,16 @@
 //! use rand_core::OsRng;
 //!
 //! let mut initiator_rng = OsRng;
-//! let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng);
+//! let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng)
+//!    .expect("Error with Initiator::start()");
 //! let message_one_bytes = message_one.as_bytes();
 //! // Send message_one_bytes over the wire to the responder
 //! ```
 //!
-//! ## Message Two
+//! The initiator retains the [`Initiator`] object for the [third step](#initiator-finish), and sends
+//! the [`MessageOne`] object over the wire to the responder.
+//!
+//! ## Responder Start
 //!
 //! Next, the responder invokes the following with an [`Input`], a [`MessageOne`]
 //! object received from the initiator in the previous step, and a source of
@@ -104,7 +113,8 @@
 //! # use rand_core::OsRng;
 //! #
 //! # let mut initiator_rng = OsRng;
-//! # let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng);
+//! # let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng)
+//! #    .expect("Error with Initiator::start()");
 //! # let message_one_bytes = message_one.as_bytes();
 //! # // Send message_one_bytes over the wire to the responder
 //! use pake_kem::MessageOne;
@@ -113,15 +123,19 @@
 //! let mut responder_rng = OsRng;
 //! let message_one = MessageOne::from_bytes(&message_one_bytes);
 //! let (responder, message_two) =
-//!     Responder::<Default>::start(&input, &message_one, &mut responder_rng);
+//!     Responder::<Default>::start(&input, &message_one, &mut responder_rng)
+//!        .expect("Error with Responder::start()");
 //! let message_two_bytes = message_two.as_bytes();
 //! // Send message_two_bytes over the wire to the initiator
 //! ```
 //!
-//! ## Message Three
+//! The responder retains the [`Responder`] object for the [fourth step](#responder-finish), and sends
+//! the [`MessageTwo`] object over the wire to the initiator.
+//!
+//! ## Initiator Finish
 //!
 //! Next, the initiator invokes the following with the already-initialized object
-//! retained from [the first step](#message-one), a [`MessageTwo`] object received from the responder
+//! retained from [the first step](#initiator-start), a [`MessageTwo`] object received from the responder
 //! in the previous step, and a source of randomness:
 //!
 //! ```
@@ -139,7 +153,8 @@
 //! # use rand_core::OsRng;
 //! #
 //! # let mut initiator_rng = OsRng;
-//! # let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng);
+//! # let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng)
+//! #    .expect("Error with Initiator::start()");
 //! # let message_one_bytes = message_one.as_bytes();
 //! # // Send message_one_bytes over the wire to the responder
 //! # use pake_kem::MessageOne;
@@ -148,28 +163,89 @@
 //! # let mut responder_rng = OsRng;
 //! # let message_one = MessageOne::from_bytes(&message_one_bytes);
 //! # let (responder, message_two) =
-//! #     Responder::<Default>::start(&input, &message_one, &mut responder_rng);
+//! #     Responder::<Default>::start(&input, &message_one, &mut responder_rng)
+//! #        .expect("Error with Responder::start()");
 //! # let message_two_bytes = message_two.as_bytes();
 //! # // Send message_two_bytes over the wire to the initiator
 //! use pake_kem::MessageTwo;
 //!
 //! let message_two = MessageTwo::from_bytes(&message_two_bytes);
 //! let (initiator_output, message_three) =
-//!     initiator.finish(&message_two, &mut initiator_rng);
+//!     initiator.finish(&message_two, &mut initiator_rng)
+//!         .expect("Error with Initiator::finish()");
 //! let message_three_bytes = message_three.as_bytes();
-//! # // Send message_three_bytes over the wire to the responder
+//! // Send message_three_bytes over the wire to the responder
 //! ```
 //!
+//! The initiator retains the [`Output`] object as the output of the pake-kem
+//! protocol, and sends the [`MessageThree`] object over the wire to the responder.
+//!
+//! ## Responder Finish
+//!
+//! Finally, the responder invokes the following with the already-initialized object
+//! retained from [the second step](#responder-start) and a [`MessageThree`] object received from the initiator
+//! in the previous step:
+//!
+//! ```
+//! # use pake_kem::CipherSuite;
+//! # struct Default;
+//! # impl CipherSuite for Default {
+//! #     type Pake = pake_kem::CPaceRistretto255;
+//! #     type Kem = ml_kem::MlKem768;
+//! #     type Hash = sha2::Sha256;
+//! # }
+//! # use pake_kem::Input;
+//! # let input = Input::new(b"password", b"initiator", b"responder");
+//! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
+//! # use pake_kem::Initiator;
+//! # use rand_core::OsRng;
+//! #
+//! # let mut initiator_rng = OsRng;
+//! # let (initiator, message_one) = Initiator::<Default>::start(&input, &mut initiator_rng)
+//! #    .expect("Error with Initiator::start()");
+//! # let message_one_bytes = message_one.as_bytes();
+//! # // Send message_one_bytes over the wire to the responder
+//! # use pake_kem::MessageOne;
+//! # use pake_kem::Responder;
+//! #
+//! # let mut responder_rng = OsRng;
+//! # let message_one = MessageOne::from_bytes(&message_one_bytes);
+//! # let (responder, message_two) =
+//! #     Responder::<Default>::start(&input, &message_one, &mut responder_rng)
+//! #        .expect("Error with Responder::start()");
+//! # let message_two_bytes = message_two.as_bytes();
+//! # // Send message_two_bytes over the wire to the initiator
+//! # use pake_kem::MessageTwo;
+//! #
+//! # let message_two = MessageTwo::from_bytes(&message_two_bytes);
+//! # let (initiator_output, message_three) =
+//! #     initiator.finish(&message_two, &mut initiator_rng)
+//! #         .expect("Error with Initiator::finish()");
+//! # let message_three_bytes = message_three.as_bytes();
+//! # // Send message_three_bytes over the wire to the responder
+//! use pake_kem::MessageThree;
+//!
+//! let message_three = MessageThree::from_bytes(&message_three_bytes);
+//! let responder_output = responder.finish(&message_three)
+//!    .expect("Error with Responder::finish()");
+//! ```
+//!
+//! The responder retains the [`Output`] object as the output of the pake-kem
+//! protocol.
+//!
+//!
 
-#![allow(dead_code)]
-#![allow(non_snake_case)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(not(test), deny(unsafe_code))]
+#![warn(clippy::doc_markdown, missing_docs, rustdoc::all)]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use core::ops::{Add, Sub};
 
 use crate::hash::{Hash, ProxyHash};
 use crate::pake::Pake;
 use crate::pake::PakeOutput;
-use errors::PakeKemError;
+pub use errors::PakeKemError;
 pub use hkdf::hmac::digest::array::Array;
 use hkdf::hmac::digest::core_api::{BlockSizeUser, CoreProxy};
 use hkdf::hmac::digest::typenum::{IsLess, IsLessOrEqual, Le, NonZero, Sum, U256, U64};
@@ -193,12 +269,20 @@ pub use pake::CPaceRistretto255;
 
 type Result<T> = core::result::Result<T, PakeKemError>;
 
+/// Configures the primitives used in pake-kem:
+/// * Pake: a (classically-secure) two-message PAKE protocol,
+/// * Kem: a (quantum-resistant) key encapsulation mechanism, and
+/// * Hash: a cryptographic hashing function.
 pub trait CipherSuite {
+    /// The PAKE protocol to use
     type Pake: Pake;
+    /// The key encapsulation mechanism to use
     type Kem: KemCore;
+    /// The hashing function to use
     type Hash: BlockSizeUser + FixedOutput + Default + HashMarker + EagerHash;
 }
 
+/// The default [`CipherSuite`] for pake-kem, based on `CPaceRistretto255`, `MlKem768`, and `Sha256`
 pub struct DefaultCipherSuite;
 impl CipherSuite for DefaultCipherSuite {
     type Pake = CPaceRistretto255;
@@ -206,18 +290,15 @@ impl CipherSuite for DefaultCipherSuite {
     type Hash = sha2::Sha256;
 }
 
-pub trait Serializable: Sized {
-    fn to_bytes(self) -> Vec<u8>;
-    fn from_bytes(input: &[u8]) -> Result<Self>;
-}
-
+/// The input to the pake-kem protocol
 pub struct Input {
-    pub password: Vec<u8>,
-    pub initiator_id: Vec<u8>,
-    pub responder_id: Vec<u8>,
+    password: Vec<u8>,
+    initiator_id: Vec<u8>,
+    responder_id: Vec<u8>,
 }
 
 impl Input {
+    /// Create a new [`Input`] object
     pub fn new(password: &[u8], initiator_id: &[u8], responder_id: &[u8]) -> Self {
         Self {
             password: password.to_vec(),
@@ -227,9 +308,12 @@ impl Input {
     }
 }
 
+/// The output of the pake-kem protocol
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Output(pub Vec<u8>);
 
+/// The main struct for the initiator of the pake-kem protocol
+#[derive(Debug)]
 pub struct Initiator<CS: CipherSuite>(CS::Pake);
 
 impl<CS: CipherSuite> Initiator<CS>
@@ -241,31 +325,40 @@ where
     <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
     Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
 {
-    pub fn start<R: RngCore + CryptoRng>(input: &Input, rng: &mut R) -> (Self, MessageOne<CS>) {
+    /// The first step of pake-kem, where the initiator starts the protocol
+    pub fn start<R: RngCore + CryptoRng>(
+        input: &Input,
+        rng: &mut R,
+    ) -> Result<(Self, MessageOne<CS>)> {
         let (init_message, state) = CS::Pake::init(input, rng);
 
-        (Self(state), MessageOne { init_message })
+        Ok((Self(state), MessageOne { init_message }))
     }
 
+    /// The third step of pake-kem, where the initiator finishes its role in the protocol, with
+    /// input from the second message created by the responder
     pub fn finish<R: RngCore + CryptoRng>(
         self,
         message_two: &MessageTwo<CS>,
         rng: &mut R,
-    ) -> (Output, MessageThree<CS>) {
+    ) -> Result<(Output, MessageThree<CS>)> {
         let pake_output = self.0.recv(&message_two.respond_message);
         let (mac_key, session_key) = pake_output_into_keys(pake_output, rng);
 
         // First, check the mac on ek
-        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&mac_key).unwrap();
+        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&mac_key)?;
         mac_verifier.update(&message_two.ek.as_bytes());
-        mac_verifier.verify_slice(&message_two.ek_tag).unwrap();
+        mac_verifier.verify_slice(&message_two.ek_tag)?;
 
         // Encapsulate a shared key to the holder of the decapsulation key, receive the shared
         // secret `k_send` and the encapsulated form `ct`.
-        let (ct, k_send) = message_two.ek.encapsulate(rng).unwrap();
+        let (ct, k_send) = message_two
+            .ek
+            .encapsulate(rng)
+            .map_err(|_| PakeKemError::Deserialization)?;
 
         // Next, construct another mac
-        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&mac_key).unwrap();
+        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&mac_key)?;
         mac_builder.update(&message_two.ek.as_bytes());
         mac_builder.update(ct.as_slice());
         mac_builder.update(k_send.as_slice());
@@ -279,10 +372,12 @@ where
         hkdf.input_ikm(k_send.as_slice());
         let (res, _) = hkdf.finalize();
 
-        (Output(res.to_vec()), MessageThree { ct, ct_tag: mac })
+        Ok((Output(res.to_vec()), MessageThree { ct, ct_tag: mac }))
     }
 }
 
+/// The main struct for the responder of the pake-kem protocol
+#[derive(Debug)]
 pub struct Responder<CS: CipherSuite> {
     mac_key: [u8; 32],
     session_key: [u8; 32],
@@ -299,11 +394,13 @@ where
     <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
     Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
 {
+    /// The second step of pake-kem, where the responder starts its role in the protocol
+    /// with input from the first message created by the initiator
     pub fn start<R: RngCore + CryptoRng>(
         input: &Input,
         message_one: &MessageOne<CS>,
         rng: &mut R,
-    ) -> (Self, MessageTwo<CS>) {
+    ) -> Result<(Self, MessageTwo<CS>)> {
         let (pake_output, respond_message) =
             CS::Pake::respond(input, &message_one.init_message, rng);
         let (mac_key, enc_key) = pake_output_into_keys(pake_output, rng);
@@ -313,11 +410,11 @@ where
         let ek_bytes = encapsulation_key.as_bytes();
         let ek_cloned = <CS::Kem as KemCore>::EncapsulationKey::from_bytes(&ek_bytes);
 
-        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&mac_key).unwrap();
+        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&mac_key)?;
         mac_builder.update(&ek_bytes);
         let mac = mac_builder.finalize().into_bytes();
 
-        (
+        Ok((
             Self {
                 mac_key,
                 session_key: enc_key,
@@ -329,17 +426,22 @@ where
                 ek: encapsulation_key,
                 ek_tag: mac,
             },
-        )
+        ))
     }
 
-    pub fn finish(self, message_three: &MessageThree<CS>) -> Output {
-        let k_recv = self.dk.decapsulate(&message_three.ct).unwrap();
+    /// The fourth step of pake-kem, where the responder finishes its role in the protocol, with
+    /// input from the third message created by the initiator
+    pub fn finish(self, message_three: &MessageThree<CS>) -> Result<Output> {
+        let k_recv = self
+            .dk
+            .decapsulate(&message_three.ct)
+            .map_err(|_| PakeKemError::Deserialization)?;
 
-        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&self.mac_key).unwrap();
+        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&self.mac_key)?;
         mac_verifier.update(&self.ek.as_bytes());
         mac_verifier.update(message_three.ct.as_slice());
         mac_verifier.update(k_recv.as_slice());
-        mac_verifier.verify_slice(&message_three.ct_tag).unwrap();
+        mac_verifier.verify_slice(&message_three.ct_tag)?;
 
         let mut hkdf = HkdfExtract::<CS::Hash>::new(None);
         hkdf.input_ikm(&self.ek.as_bytes());
@@ -349,7 +451,7 @@ where
         hkdf.input_ikm(k_recv.as_slice());
         let (res, _) = hkdf.finalize();
 
-        Output(res.to_vec())
+        Ok(Output(res.to_vec()))
     }
 }
 
@@ -370,6 +472,8 @@ fn pake_output_into_keys<R: RngCore + CryptoRng>(
     (key1, key2)
 }
 
+/// The first message in the pake-kem protocol, created by the initiator
+#[derive(Debug)]
 pub struct MessageOne<CS: CipherSuite> {
     init_message: <CS::Pake as Pake>::InitMessage,
 }
@@ -388,6 +492,8 @@ impl<CS: CipherSuite> EncodedSizeUser for MessageOne<CS> {
     }
 }
 
+/// The second message in the pake-kem protocol, created by the responder
+#[derive(Debug)]
 pub struct MessageTwo<CS: CipherSuite>
 where
     <CS::Hash as OutputSizeUser>::OutputSize:
@@ -464,6 +570,8 @@ where
     }
 }
 
+/// The third message in the pake-kem protocol, created by the initiator
+#[derive(Debug)]
 pub struct MessageThree<CS: CipherSuite>
 where
     <CS::Hash as OutputSizeUser>::OutputSize:

@@ -1,22 +1,23 @@
 [package]
 name = "pake-kem"
 description = "An implementation of a password-authenticated key exchange (PAKE) based from a key encapsulation mechanism (KEM)."
-version = "0.1.0-pre.3"
+version = "0.1.0-pre.4"
 license = "MIT OR Apache-2.0"
 edition = "2021"
+repository = "https://github.com/facebook/pake-kem"
+categories = ["cryptography"]
+keywords = ["cryptography"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 curve25519-dalek = { version = "4", features = ["rand_core"] }
-elliptic-curve = { version = "0.14.0-pre.6", features = ["hash2curve"] }
-hkdf = "0.13.0-pre.4"
+hkdf = { version = "0.13.0-pre.4", features = ["std"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
-ml-kem = "0.2"
+ml-kem = "0.2.1"
 kem = "0.3.0-pre.0"
 sha2 = "0.11.0-pre.4"
 thiserror = "1"
-getrandom = { version = "0.2", features = ["js"] }                       # for wasm support
 
 [dev-dependencies]
 hex = "0.4"

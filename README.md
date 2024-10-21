@@ -2,6 +2,8 @@
 
 An implementation of a password-authenticated key exchange (PAKE) based from a key encapsulation mechanism (KEM).
 
+⚠️ **Warning**: This implementation has not been audited. Use at your own risk!
+
 Documentation
 -------------
 
@@ -15,6 +17,17 @@ Add the following line to the dependencies of your `Cargo.toml`:
 ```
 pake-kem = "0.1.0-pre.3"
 ```
+
+Contributors
+------------
+
+The original author of this code is Kevin Lewi ([@kevinlewi](https://github.com/kevinlewi)).
+To learn more about contributing to this project, [see this document](./CONTRIBUTING.md).
+
+#### Acknowledgments
+
+The author would like to thank Michael Rosenberg (@rozbb) for the initial discussions
+which helped lead to the creation of this library.
 
 License
 -------

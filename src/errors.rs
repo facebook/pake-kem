@@ -8,14 +8,16 @@
 
 use thiserror::Error;
 
+/// The library's error type
 #[derive(Error, Debug)]
 pub enum PakeKemError {
+    /// Error for when a deserialization fails
     #[error("Issue with deserialization")]
     Deserialization,
-    #[error("the data for key `{0}` is not available")]
-    Redaction(String),
-    #[error("invalid header (expected {expected:?}, found {found:?})")]
-    InvalidHeader { expected: String, found: String },
-    #[error("unknown data store error")]
-    Unknown,
+    /// Error for when an input has an invalid length
+    #[error(transparent)]
+    InvalidLength(#[from] hkdf::hmac::digest::InvalidLength),
+    /// Error for when the protocol emits a failure that should abort
+    #[error(transparent)]
+    MacError(#[from] hkdf::hmac::digest::MacError),
 }
