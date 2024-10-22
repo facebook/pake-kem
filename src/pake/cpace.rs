@@ -7,11 +7,13 @@
 // licenses.
 
 use super::*;
+use crate::Array;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::traits::Identity;
 use curve25519_dalek::Scalar;
-use hkdf::hmac::digest::array::typenum::{U32, U64};
+use hkdf::hmac::digest::array::typenum::{U32, U64, U96};
+use hkdf::HkdfExtract;
 use ml_kem::{Encoded, EncodedSizeUser};
 use rand_core::{CryptoRng, RngCore};
 use sha2::Digest;
@@ -31,36 +33,47 @@ pub struct CPaceRistretto255 {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CPaceRistretto255InitMessage([u8; 32]);
+pub struct CPaceRistretto255InitMessage(Array<u8, U32>);
 
 impl EncodedSizeUser for CPaceRistretto255InitMessage {
     type EncodedSize = U32;
 
     fn from_bytes(enc: &Encoded<Self>) -> Self {
-        let mut arr = [0u8; 32];
-        arr.clone_from_slice(&enc[..32]);
-        Self(arr)
+        Self(*enc)
     }
 
     fn as_bytes(&self) -> Encoded<Self> {
-        self.0.into()
+        self.0
     }
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CPaceRistretto255RespondMessage([u8; 32]);
+pub struct CPaceRistretto255RespondMessage(Array<u8, U32>);
 
 impl EncodedSizeUser for CPaceRistretto255RespondMessage {
     type EncodedSize = U32;
 
     fn from_bytes(enc: &Encoded<Self>) -> Self {
-        let mut arr = [0u8; 32];
-        arr.clone_from_slice(&enc[..32]);
-        Self(arr)
+        Self(*enc)
     }
 
     fn as_bytes(&self) -> Encoded<Self> {
-        self.0.into()
+        self.0
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct CPaceRistretto255Output(pub(crate) Array<u8, U96>);
+
+impl EncodedSizeUser for CPaceRistretto255Output {
+    type EncodedSize = U96;
+
+    fn from_bytes(enc: &Encoded<Self>) -> Self {
+        Self(*enc)
+    }
+
+    fn as_bytes(&self) -> Encoded<Self> {
+        self.0
     }
 }
 
@@ -89,6 +102,7 @@ impl EncodedSizeUser for CPaceRistretto255 {
 impl Pake for CPaceRistretto255 {
     type InitMessage = CPaceRistretto255InitMessage;
     type RespondMessage = CPaceRistretto255RespondMessage;
+    type Output = CPaceRistretto255Output;
 
     fn init<R: RngCore + CryptoRng>(input: &Input, rng: &mut R) -> (Self::InitMessage, Self) {
         let context = [
@@ -102,7 +116,7 @@ impl Pake for CPaceRistretto255 {
         let init_message_bytes = message.compress().to_bytes();
 
         (
-            CPaceRistretto255InitMessage(init_message_bytes),
+            CPaceRistretto255InitMessage(Array::from(init_message_bytes)),
             Self {
                 init_message_bytes,
                 scalar,
@@ -114,7 +128,7 @@ impl Pake for CPaceRistretto255 {
         input: &Input,
         init_message: &Self::InitMessage,
         rng: &mut R,
-    ) -> (Option<PakeOutput>, Self::RespondMessage) {
+    ) -> (Option<Self::Output>, Self::RespondMessage) {
         let context = [
             prepend_len(&input.initiator_id),
             prepend_len(&input.responder_id),
@@ -128,35 +142,35 @@ impl Pake for CPaceRistretto255 {
         let k = scalar_mult_vfy(&init_message.0, &scalar);
         let output = match k == RistrettoPoint::identity() {
             true => None,
-            false => Some(calculate_isk(
+            false => Some(isk_to_output(calculate_isk(
                 &[],
                 &k.compress().to_bytes(),
                 &init_message.0,
                 &[],
                 &message.compress().to_bytes(),
                 &[],
-            )),
+            ))),
         };
 
         (
             output,
-            CPaceRistretto255RespondMessage(respond_message_bytes),
+            CPaceRistretto255RespondMessage(Array::from(respond_message_bytes)),
         )
     }
 
-    fn recv(self, respond_message: &Self::RespondMessage) -> Option<PakeOutput> {
+    fn recv(self, respond_message: &Self::RespondMessage) -> Option<Self::Output> {
         let k = scalar_mult_vfy(&respond_message.0, &self.scalar);
 
         match k == RistrettoPoint::identity() {
             true => None,
-            false => Some(calculate_isk(
+            false => Some(isk_to_output(calculate_isk(
                 &[],
                 &k.compress().to_bytes(),
                 &self.init_message_bytes,
                 &[],
                 &respond_message.0,
                 &[],
-            )),
+            ))),
         }
     }
 }
@@ -270,7 +284,7 @@ pub(crate) fn calculate_isk(
     ada: &[u8],
     yb: &[u8],
     adb: &[u8],
-) -> [u8; 64] {
+) -> Array<u8, U64> {
     let prefix = lv_cat(&[&DSI_ISK[..], sid, k]);
     let transcript = transcript_ir(ya, ada, yb, adb);
     let mut hasher = Sha512::new();
@@ -279,7 +293,18 @@ pub(crate) fn calculate_isk(
 
     let mut output = [0u8; 64];
     output.copy_from_slice(&hasher.finalize());
-    output
+    Array::from(output)
+}
+
+pub(crate) fn isk_to_output(isk: Array<u8, U64>) -> CPaceRistretto255Output {
+    let mut hkdf = HkdfExtract::<Sha512>::new(None);
+    hkdf.input_ikm(&isk);
+    let mut output = [0u8; 96];
+    let (_, expand) = hkdf.finalize();
+    expand
+        .expand(&[], &mut output)
+        .expect("Output length should be long enough");
+    CPaceRistretto255Output(Array::from(output))
 }
 
 /*

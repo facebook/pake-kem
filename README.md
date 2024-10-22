@@ -26,7 +26,7 @@ To learn more about contributing to this project, [see this document](./CONTRIBU
 
 #### Acknowledgments
 
-The author would like to thank Michael Rosenberg (@rozbb) for the initial discussions
+The author would like to thank Michael Rosenberg ([@rozbb](https://github.com/rozbb)) for the initial discussions
 which helped lead to the creation of this library.
 
 License

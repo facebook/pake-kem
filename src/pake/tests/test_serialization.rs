@@ -97,7 +97,7 @@ fn test_corrupt_message_one() {
     let structs = prepare_test_structs();
     let corrupt_message_one =
         corrupt_struct::<MessageOne<DefaultCipherSuite>>(&structs.message_one);
-    assert!(Responder::start(&structs.input, &corrupt_message_one, &mut OsRng).is_ok());
+    assert!(Responder::start(&structs.input, &corrupt_message_one, &mut OsRng).is_err());
 }
 
 #[test]
@@ -105,10 +105,10 @@ fn test_corrupt_message_two() {
     let structs = prepare_test_structs();
     let corrupt_message_two =
         corrupt_struct::<MessageTwo<DefaultCipherSuite>>(&structs.message_two);
-    match structs.initiator.finish(&corrupt_message_two, &mut OsRng) {
-        Err(PakeKemError::MacError(_)) => {}
-        _ => panic!("Expected PakeKemError::MacError"),
-    }
+    assert!(structs
+        .initiator
+        .finish(&corrupt_message_two, &mut OsRng)
+        .is_err());
 }
 
 #[test]
@@ -116,8 +116,5 @@ fn test_corrupt_message_three() {
     let structs = prepare_test_structs();
     let corrupt_message_three =
         corrupt_struct::<MessageThree<DefaultCipherSuite>>(&structs.message_three);
-    match structs.responder.finish(&corrupt_message_three) {
-        Err(PakeKemError::MacError(_)) => {}
-        _ => panic!("Expected PakeKemError::MacError"),
-    }
+    assert!(structs.responder.finish(&corrupt_message_three).is_err());
 }

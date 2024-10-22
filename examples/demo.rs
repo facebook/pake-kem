@@ -82,8 +82,8 @@ fn main() {
     println!(
         "initiator_output: ({} bytes): {:?}",
         initiator_output.0.len(),
-        initiator_output
+        initiator_output.0
     );
 
-    assert_eq!(initiator_output, responder_output);
+    assert_eq!(initiator_output.0, responder_output.0);
 }

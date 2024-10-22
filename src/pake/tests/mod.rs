@@ -258,13 +258,16 @@ fn test_calculate_isk() {
 
     assert_eq!(
         parse_json_key(&vectors, "ISK_IR"),
-        hex::encode(calculate_isk(
-            &hex::decode(parse_json_key(&vectors, "sid")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "K")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "Ya")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "ADa")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "Yb")).unwrap(),
-            &hex::decode(parse_json_key(&vectors, "ADb")).unwrap(),
-        ))
+        hex::encode(
+            calculate_isk(
+                &hex::decode(parse_json_key(&vectors, "sid")).unwrap(),
+                &hex::decode(parse_json_key(&vectors, "K")).unwrap(),
+                &hex::decode(parse_json_key(&vectors, "Ya")).unwrap(),
+                &hex::decode(parse_json_key(&vectors, "ADa")).unwrap(),
+                &hex::decode(parse_json_key(&vectors, "Yb")).unwrap(),
+                &hex::decode(parse_json_key(&vectors, "ADb")).unwrap(),
+            )
+            .0
+        )
     );
 }
