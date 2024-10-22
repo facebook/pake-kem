@@ -242,15 +242,13 @@
 
 use core::ops::{Add, Sub};
 
-use crate::hash::{Hash, ProxyHash};
 use crate::pake::Pake;
-use crate::pake::PakeOutput;
 pub use errors::PakeKemError;
+use hkdf::hmac::digest::array::typenum::U32;
 pub use hkdf::hmac::digest::array::Array;
-use hkdf::hmac::digest::core_api::{BlockSizeUser, CoreProxy};
-use hkdf::hmac::digest::typenum::{IsLess, IsLessOrEqual, Le, NonZero, Sum, U256, U64};
+use hkdf::hmac::digest::core_api::BlockSizeUser;
+use hkdf::hmac::digest::typenum::Sum;
 use hkdf::hmac::digest::FixedOutput;
-use hkdf::hmac::digest::HashMarker;
 use hkdf::hmac::digest::OutputSizeUser;
 use hkdf::hmac::{EagerHash, Hmac, KeyInit, Mac};
 use hkdf::HkdfExtract;
@@ -263,7 +261,6 @@ pub use rand_core;
 use rand_core::{CryptoRng, RngCore};
 
 mod errors;
-mod hash;
 mod pake;
 pub use pake::CPaceRistretto255;
 
@@ -279,10 +276,11 @@ pub trait CipherSuite {
     /// The key encapsulation mechanism to use
     type Kem: KemCore;
     /// The hashing function to use
-    type Hash: BlockSizeUser + FixedOutput + Default + HashMarker + EagerHash;
+    type Hash: EagerHash + FixedOutput;
 }
 
 /// The default [`CipherSuite`] for pake-kem, based on `CPaceRistretto255`, `MlKem768`, and `Sha256`
+#[derive(Debug)]
 pub struct DefaultCipherSuite;
 impl CipherSuite for DefaultCipherSuite {
     type Pake = CPaceRistretto255;
@@ -310,7 +308,7 @@ impl Input {
 
 /// The output of the pake-kem protocol
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Output(pub Vec<u8>);
+pub struct Output<CS: CipherSuite>(pub Array<u8, <CS::Hash as OutputSizeUser>::OutputSize>);
 
 /// The main struct for the initiator of the pake-kem protocol
 #[derive(Debug)]
@@ -318,12 +316,8 @@ pub struct Initiator<CS: CipherSuite>(CS::Pake);
 
 impl<CS: CipherSuite> Initiator<CS>
 where
-    <CS::Hash as OutputSizeUser>::OutputSize:
-        IsLess<U256> + IsLessOrEqual<<CS::Hash as BlockSizeUser>::BlockSize>,
-    CS::Hash: Hash,
-    <CS::Hash as CoreProxy>::Core: ProxyHash,
-    <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
-    Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
+    <<CS::Pake as Pake>::Output as EncodedSizeUser>::EncodedSize:
+        Sub<<<CS::Hash as EagerHash>::Core as BlockSizeUser>::BlockSize, Output = U32>,
 {
     /// The first step of pake-kem, where the initiator starts the protocol
     pub fn start<R: RngCore + CryptoRng>(
@@ -341,12 +335,14 @@ where
         self,
         message_two: &MessageTwo<CS>,
         rng: &mut R,
-    ) -> Result<(Output, MessageThree<CS>)> {
-        let pake_output = self.0.recv(&message_two.respond_message);
-        let (mac_key, session_key) = pake_output_into_keys(pake_output, rng);
+    ) -> Result<(Output<CS>, MessageThree<CS>)> {
+        let (mac_key, session_key) = match self.0.recv(&message_two.respond_message) {
+            Some(pake_output) => pake_output_into_keys::<CS>(pake_output.as_bytes()),
+            None => return Err(PakeKemError::InvalidPakeOutput),
+        };
 
         // First, check the mac on ek
-        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&mac_key)?;
+        let mut mac_verifier = Hmac::<CS::Hash>::new(&mac_key);
         mac_verifier.update(&message_two.ek.as_bytes());
         mac_verifier.verify_slice(&message_two.ek_tag)?;
 
@@ -358,7 +354,7 @@ where
             .map_err(|_| PakeKemError::Deserialization)?;
 
         // Next, construct another mac
-        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&mac_key)?;
+        let mut mac_builder = Hmac::<CS::Hash>::new(&mac_key);
         mac_builder.update(&message_two.ek.as_bytes());
         mac_builder.update(ct.as_slice());
         mac_builder.update(k_send.as_slice());
@@ -372,27 +368,22 @@ where
         hkdf.input_ikm(k_send.as_slice());
         let (res, _) = hkdf.finalize();
 
-        Ok((Output(res.to_vec()), MessageThree { ct, ct_tag: mac }))
+        Ok((Output(res), MessageThree { ct, ct_tag: mac }))
     }
 }
 
 /// The main struct for the responder of the pake-kem protocol
 #[derive(Debug)]
 pub struct Responder<CS: CipherSuite> {
-    mac_key: [u8; 32],
-    session_key: [u8; 32],
+    pake_output: <CS::Pake as Pake>::Output,
     dk: <CS::Kem as KemCore>::DecapsulationKey,
     ek: <CS::Kem as KemCore>::EncapsulationKey,
 }
 
 impl<CS: CipherSuite> Responder<CS>
 where
-    <CS::Hash as OutputSizeUser>::OutputSize:
-        IsLess<U256> + IsLessOrEqual<<CS::Hash as BlockSizeUser>::BlockSize>,
-    CS::Hash: Hash,
-    <CS::Hash as CoreProxy>::Core: ProxyHash,
-    <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
-    Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
+    <<CS::Pake as Pake>::Output as EncodedSizeUser>::EncodedSize:
+        Sub<<<CS::Hash as EagerHash>::Core as BlockSizeUser>::BlockSize, Output = U32>,
 {
     /// The second step of pake-kem, where the responder starts its role in the protocol
     /// with input from the first message created by the initiator
@@ -401,23 +392,26 @@ where
         message_one: &MessageOne<CS>,
         rng: &mut R,
     ) -> Result<(Self, MessageTwo<CS>)> {
-        let (pake_output, respond_message) =
+        let (wrapped_pake_output, respond_message) =
             CS::Pake::respond(input, &message_one.init_message, rng);
-        let (mac_key, enc_key) = pake_output_into_keys(pake_output, rng);
+        let pake_output = match wrapped_pake_output {
+            Some(pake_output) => pake_output,
+            None => return Err(PakeKemError::InvalidPakeOutput),
+        };
+        let (mac_key, _) = pake_output_into_keys::<CS>(pake_output.as_bytes());
 
         let (decapsulation_key, encapsulation_key) = CS::Kem::generate(rng);
 
         let ek_bytes = encapsulation_key.as_bytes();
         let ek_cloned = <CS::Kem as KemCore>::EncapsulationKey::from_bytes(&ek_bytes);
 
-        let mut mac_builder = Hmac::<CS::Hash>::new_from_slice(&mac_key)?;
+        let mut mac_builder = Hmac::<CS::Hash>::new(&mac_key);
         mac_builder.update(&ek_bytes);
         let mac = mac_builder.finalize().into_bytes();
 
         Ok((
             Self {
-                mac_key,
-                session_key: enc_key,
+                pake_output,
                 dk: decapsulation_key,
                 ek: ek_cloned,
             },
@@ -431,13 +425,14 @@ where
 
     /// The fourth step of pake-kem, where the responder finishes its role in the protocol, with
     /// input from the third message created by the initiator
-    pub fn finish(self, message_three: &MessageThree<CS>) -> Result<Output> {
+    pub fn finish(self, message_three: &MessageThree<CS>) -> Result<Output<CS>> {
+        let (mac_key, session_key) = pake_output_into_keys::<CS>(self.pake_output.as_bytes());
         let k_recv = self
             .dk
             .decapsulate(&message_three.ct)
             .map_err(|_| PakeKemError::Deserialization)?;
 
-        let mut mac_verifier = Hmac::<CS::Hash>::new_from_slice(&self.mac_key)?;
+        let mut mac_verifier = Hmac::<CS::Hash>::new(&mac_key);
         mac_verifier.update(&self.ek.as_bytes());
         mac_verifier.update(message_three.ct.as_slice());
         mac_verifier.update(k_recv.as_slice());
@@ -446,30 +441,27 @@ where
         let mut hkdf = HkdfExtract::<CS::Hash>::new(None);
         hkdf.input_ikm(&self.ek.as_bytes());
         hkdf.input_ikm(message_three.ct.as_slice());
-        hkdf.input_ikm(&self.mac_key);
-        hkdf.input_ikm(&self.session_key);
+        hkdf.input_ikm(&mac_key);
+        hkdf.input_ikm(&session_key);
         hkdf.input_ikm(k_recv.as_slice());
         let (res, _) = hkdf.finalize();
 
-        Ok(Output(res.to_vec()))
+        Ok(Output(res))
     }
 }
 
-fn pake_output_into_keys<R: RngCore + CryptoRng>(
-    pake_output: Option<PakeOutput>,
-    rng: &mut R,
-) -> ([u8; 32], [u8; 32]) {
-    let mut key1 = [0u8; 32];
-    let mut key2 = [0u8; 32];
-    rng.fill_bytes(&mut key1);
-    rng.fill_bytes(&mut key2);
-
-    if let Some(pake_output) = pake_output {
-        key1.copy_from_slice(&pake_output[..32]);
-        key2.copy_from_slice(&pake_output[32..]);
-    }
-
-    (key1, key2)
+#[allow(clippy::type_complexity)]
+fn pake_output_into_keys<CS: CipherSuite>(
+    pake_output: Encoded<<CS::Pake as Pake>::Output>,
+) -> (
+    Array<u8, <<CS::Hash as EagerHash>::Core as BlockSizeUser>::BlockSize>,
+    Array<u8, U32>,
+)
+where
+    <<CS::Pake as Pake>::Output as EncodedSizeUser>::EncodedSize:
+        Sub<<<CS::Hash as EagerHash>::Core as BlockSizeUser>::BlockSize, Output = U32>,
+{
+    pake_output.split()
 }
 
 /// The first message in the pake-kem protocol, created by the initiator
@@ -494,15 +486,7 @@ impl<CS: CipherSuite> EncodedSizeUser for MessageOne<CS> {
 
 /// The second message in the pake-kem protocol, created by the responder
 #[derive(Debug)]
-pub struct MessageTwo<CS: CipherSuite>
-where
-    <CS::Hash as OutputSizeUser>::OutputSize:
-        IsLess<U256> + IsLessOrEqual<<CS::Hash as BlockSizeUser>::BlockSize>,
-    CS::Hash: Hash,
-    <CS::Hash as CoreProxy>::Core: ProxyHash,
-    <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
-    Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
-{
+pub struct MessageTwo<CS: CipherSuite> {
     respond_message: <CS::Pake as Pake>::RespondMessage,
     ek: <CS::Kem as KemCore>::EncapsulationKey,
     ek_tag: Array<u8, <<CS::Hash as EagerHash>::Core as OutputSizeUser>::OutputSize>,
@@ -510,13 +494,6 @@ where
 
 impl<CS: CipherSuite> EncodedSizeUser for MessageTwo<CS>
 where
-    <CS::Hash as OutputSizeUser>::OutputSize:
-        IsLess<U256> + IsLessOrEqual<<CS::Hash as BlockSizeUser>::BlockSize>,
-    CS::Hash: Hash,
-    <CS::Hash as CoreProxy>::Core: ProxyHash,
-    <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
-    Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
-
     // Concatenation clauses
     <<CS::Pake as Pake>::RespondMessage as EncodedSizeUser>::EncodedSize:
         Add<<<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize>,
@@ -572,28 +549,13 @@ where
 
 /// The third message in the pake-kem protocol, created by the initiator
 #[derive(Debug)]
-pub struct MessageThree<CS: CipherSuite>
-where
-    <CS::Hash as OutputSizeUser>::OutputSize:
-        IsLess<U256> + IsLessOrEqual<<CS::Hash as BlockSizeUser>::BlockSize>,
-    CS::Hash: Hash,
-    <CS::Hash as CoreProxy>::Core: ProxyHash,
-    <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
-    Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
-{
+pub struct MessageThree<CS: CipherSuite> {
     ct: Ciphertext<CS::Kem>,
     ct_tag: Array<u8, <<CS::Hash as EagerHash>::Core as OutputSizeUser>::OutputSize>,
 }
 
 impl<CS: CipherSuite> EncodedSizeUser for MessageThree<CS>
 where
-    <CS::Hash as OutputSizeUser>::OutputSize:
-        IsLess<U256> + IsLessOrEqual<<CS::Hash as BlockSizeUser>::BlockSize>,
-    CS::Hash: Hash,
-    <CS::Hash as CoreProxy>::Core: ProxyHash,
-    <<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize: IsLess<U256>,
-    Le<<<CS::Hash as CoreProxy>::Core as BlockSizeUser>::BlockSize, U256>: NonZero,
-
     // Concatenation clauses
     <CS::Kem as KemCore>::CiphertextSize:
         Add<<<CS::Hash as EagerHash>::Core as OutputSizeUser>::OutputSize>,
@@ -645,7 +607,7 @@ where
         <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
         <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
     >: ArraySize
-        + Add<U64>
+        + Add<<<CS::Pake as Pake>::Output as EncodedSizeUser>::EncodedSize>
         + Sub<
             <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
             Output = <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
@@ -655,14 +617,14 @@ where
             <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
             <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
         >,
-        U64,
+        <<CS::Pake as Pake>::Output as EncodedSizeUser>::EncodedSize,
     >: ArraySize
         + Sub<
             Sum<
                 <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
                 <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
             >,
-            Output = U64,
+            Output = <<CS::Pake as Pake>::Output as EncodedSizeUser>::EncodedSize,
         >,
 {
     type EncodedSize = Sum<
@@ -670,32 +632,24 @@ where
             <<CS::Kem as KemCore>::DecapsulationKey as EncodedSizeUser>::EncodedSize,
             <<CS::Kem as KemCore>::EncapsulationKey as EncodedSizeUser>::EncodedSize,
         >,
-        U64,
+        <<CS::Pake as Pake>::Output as EncodedSizeUser>::EncodedSize,
     >;
 
     fn from_bytes(enc: &Encoded<Self>) -> Self {
-        let (enc, both_keys) = enc.split_ref();
+        let (enc, pake_output) = enc.split_ref();
         let (dk_bytes, ek_bytes) = enc.split_ref();
-        let mut mac_key: [u8; 32] = [0u8; 32];
-        mac_key.copy_from_slice(&both_keys[..32]);
-        let mut session_key: [u8; 32] = [0u8; 32];
-        session_key.copy_from_slice(&both_keys[32..]);
 
         Self {
-            mac_key,
-            session_key,
+            pake_output: <CS::Pake as Pake>::Output::from_bytes(pake_output),
             dk: <CS::Kem as KemCore>::DecapsulationKey::from_bytes(dk_bytes),
             ek: <CS::Kem as KemCore>::EncapsulationKey::from_bytes(ek_bytes),
         }
     }
 
     fn as_bytes(&self) -> Encoded<Self> {
-        let mut both_keys = Array::<u8, U64>::default();
-        both_keys[..32].copy_from_slice(&self.mac_key);
-        both_keys[32..].copy_from_slice(&self.session_key);
         self.dk
             .as_bytes()
             .concat(self.ek.as_bytes())
-            .concat(both_keys)
+            .concat(self.pake_output.as_bytes())
     }
 }

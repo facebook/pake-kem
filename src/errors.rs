@@ -17,6 +17,9 @@ pub enum PakeKemError {
     /// Error for when an input has an invalid length
     #[error(transparent)]
     InvalidLength(#[from] hkdf::hmac::digest::InvalidLength),
+    /// Error for when the PAKE operation fails
+    #[error("PAKE operation failed")]
+    InvalidPakeOutput,
     /// Error for when the protocol emits a failure that should abort
     #[error(transparent)]
     MacError(#[from] hkdf::hmac::digest::MacError),
