@@ -15,7 +15,7 @@ Installation
 Add the following line to the dependencies of your `Cargo.toml`:
 
 ```
-pake-kem = "0.1.0-pre.3"
+pake-kem = "0.1.0-pre.4"
 ```
 
 Contributors
