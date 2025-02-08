@@ -14,7 +14,6 @@ use curve25519_dalek::Scalar;
 use serde_json::Value;
 
 mod cpace_test_vectors;
-mod test_serialization;
 
 fn rfc_to_json(input: &str) -> Value {
     let mut output = String::new();
