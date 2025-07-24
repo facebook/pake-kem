@@ -18,6 +18,22 @@ Add the following line to the dependencies of your `Cargo.toml`:
 pake-kem = "0.1.0-pre.4"
 ```
 
+Threat model
+------------
+
+This is NOT a post-quantum PAKE. This is a stopgap PAKE with a more complex set of security guarantees. It should only be used in scenarios that fit these guarantees. The first two are typical of any PAKE, the latter two are more particular to this one:
+
+1. Passive adversaries cannot learn the session key produced by the PAKE. That is, if an attacker simply observes all messages sent in the protocol, they do not know what the final key is.
+2. Active (i.e., man-in-the-middle) classical adversaries can make 1 password guess per PAKE execution. If they guess the password correctly, they learn the password and session key. 
+3. Passive quantum adversaries can learn the password. That is, if a quantum adversary is given an execution transcript of the PAKE, they can launch a brute force attack on the password. Because of the structure of the transcript, they will know when their guess is correct. This doesn't reveal the session key, though (as guaranteed in point 1).
+4. Active quantum adversaries can make an unbounded number of password guesses per PAKE session. If they can successfully brute-force the password in real time, they learn the password and session key.
+
+### When to use this PAKE
+
+A user should assume that a password used with this PAKE will eventually get revealed (via point 3). Further, they should assume that it is not a secure key exchange mechanism once quantum computers exist (via point 4).
+
+This PAKE is appropriate if, for example, you are using one-time-use passwords, and you don't intend to keep this PAKE as a long-term solution.
+
 Contributors
 ------------
 
