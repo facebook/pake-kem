@@ -240,7 +240,6 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![cfg_attr(not(test), deny(unsafe_code))]
 #![warn(clippy::doc_markdown, missing_docs, rustdoc::all)]
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod errors;
 mod messages;
