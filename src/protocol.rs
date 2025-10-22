@@ -121,7 +121,6 @@ where
         let mut mac_builder = Hmac::<CS::Hash>::new(&mac_key);
         mac_builder.update(&message_two.ek.as_bytes());
         mac_builder.update(ct.as_slice());
-        mac_builder.update(k_send.as_slice());
         let mac = mac_builder.finalize().into_bytes();
 
         let mut hkdf = HkdfExtract::<CS::Hash>::new(None);
@@ -191,16 +190,16 @@ where
     /// input from the third message created by the initiator
     pub fn finish(self, message_three: &MessageThree<CS>) -> Result<Output<CS>> {
         let (mac_key, session_key) = pake_output_into_keys::<CS>(self.pake_output.as_bytes());
-        let k_recv = self
-            .dk
-            .decapsulate(&message_three.ct)
-            .map_err(|_| PakeKemError::Deserialization)?;
 
         let mut mac_verifier = Hmac::<CS::Hash>::new(&mac_key);
         mac_verifier.update(&self.ek.as_bytes());
         mac_verifier.update(message_three.ct.as_slice());
-        mac_verifier.update(k_recv.as_slice());
         mac_verifier.verify_slice(&message_three.ct_tag)?;
+
+        let k_recv = self
+            .dk
+            .decapsulate(&message_three.ct)
+            .map_err(|_| PakeKemError::Deserialization)?;
 
         let mut hkdf = HkdfExtract::<CS::Hash>::new(None);
         hkdf.input_ikm(&self.ek.as_bytes());
