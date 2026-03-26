@@ -7,15 +7,14 @@
 // licenses.
 
 use super::*;
-use crate::Array;
+use crate::{Array, Encoded, EncodedSizeUser, PakeKemError};
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::traits::Identity;
 use curve25519_dalek::Scalar;
 use hkdf::hmac::digest::array::typenum::{U32, U64, U96};
 use hkdf::HkdfExtract;
-use ml_kem::{Encoded, EncodedSizeUser};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRng;
 use sha2::Digest;
 use sha2::Sha512;
 
@@ -38,8 +37,8 @@ pub struct CPaceRistretto255InitMessage(Array<u8, U32>);
 impl EncodedSizeUser for CPaceRistretto255InitMessage {
     type EncodedSize = U32;
 
-    fn from_bytes(enc: &Encoded<Self>) -> Self {
-        Self(*enc)
+    fn from_bytes(enc: &Encoded<Self>) -> Result<Self, PakeKemError> {
+        Ok(Self(*enc))
     }
 
     fn as_bytes(&self) -> Encoded<Self> {
@@ -53,8 +52,8 @@ pub struct CPaceRistretto255RespondMessage(Array<u8, U32>);
 impl EncodedSizeUser for CPaceRistretto255RespondMessage {
     type EncodedSize = U32;
 
-    fn from_bytes(enc: &Encoded<Self>) -> Self {
-        Self(*enc)
+    fn from_bytes(enc: &Encoded<Self>) -> Result<Self, PakeKemError> {
+        Ok(Self(*enc))
     }
 
     fn as_bytes(&self) -> Encoded<Self> {
@@ -68,8 +67,8 @@ pub struct CPaceRistretto255Output(pub(crate) Array<u8, U96>);
 impl EncodedSizeUser for CPaceRistretto255Output {
     type EncodedSize = U96;
 
-    fn from_bytes(enc: &Encoded<Self>) -> Self {
-        Self(*enc)
+    fn from_bytes(enc: &Encoded<Self>) -> Result<Self, PakeKemError> {
+        Ok(Self(*enc))
     }
 
     fn as_bytes(&self) -> Encoded<Self> {
@@ -80,15 +79,15 @@ impl EncodedSizeUser for CPaceRistretto255Output {
 impl EncodedSizeUser for CPaceRistretto255 {
     type EncodedSize = U64;
 
-    fn from_bytes(enc: &Encoded<Self>) -> Self {
+    fn from_bytes(enc: &Encoded<Self>) -> Result<Self, PakeKemError> {
         let mut arr = [0u8; 32];
         arr.clone_from_slice(&enc[..32]);
         let mut scalar_bytes = [0u8; 32];
         scalar_bytes.clone_from_slice(&enc[32..]);
-        Self {
+        Ok(Self {
             init_message_bytes: arr,
             scalar: Scalar::from_bytes_mod_order(scalar_bytes),
-        }
+        })
     }
 
     fn as_bytes(&self) -> Encoded<Self> {
@@ -104,7 +103,7 @@ impl Pake for CPaceRistretto255 {
     type RespondMessage = CPaceRistretto255RespondMessage;
     type Output = CPaceRistretto255Output;
 
-    fn init<R: RngCore + CryptoRng>(input: &Input, rng: &mut R) -> (Self::InitMessage, Self) {
+    fn init<R: CryptoRng>(input: &Input, rng: &mut R) -> (Self::InitMessage, Self) {
         let context = [
             prepend_len(&input.initiator_id),
             prepend_len(&input.responder_id),
@@ -124,7 +123,7 @@ impl Pake for CPaceRistretto255 {
         )
     }
 
-    fn respond<R: RngCore + CryptoRng>(
+    fn respond<R: CryptoRng>(
         input: &Input,
         init_message: &Self::InitMessage,
         rng: &mut R,

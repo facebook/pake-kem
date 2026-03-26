@@ -82,9 +82,9 @@
 //! # let input = Input::new(b"password", b"initiator", b"responder");
 //! use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! use pake_kem::Initiator;
-//! use rand_core::OsRng;
+//! use rand_core::UnwrapErr;
 //!
-//! let mut initiator_rng = OsRng;
+//! let mut initiator_rng = UnwrapErr(getrandom::SysRng);
 //! let (initiator, message_one) = Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng)
 //!    .expect("Error with Initiator::start()");
 //! let message_one_bytes = message_one.as_bytes();
@@ -112,9 +112,9 @@
 //! # let input = Input::new(b"password", b"initiator", b"responder");
 //! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! # use pake_kem::Initiator;
-//! # use rand_core::OsRng;
+//! # use rand_core::UnwrapErr;
 //! #
-//! # let mut initiator_rng = OsRng;
+//! # let mut initiator_rng = UnwrapErr(getrandom::SysRng);
 //! # let (initiator, message_one) = Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng)
 //! #    .expect("Error with Initiator::start()");
 //! # let message_one_bytes = message_one.as_bytes();
@@ -122,8 +122,8 @@
 //! use pake_kem::MessageOne;
 //! use pake_kem::Responder;
 //!
-//! let mut responder_rng = OsRng;
-//! let message_one = MessageOne::from_bytes(&message_one_bytes);
+//! let mut responder_rng = UnwrapErr(getrandom::SysRng);
+//! let message_one = MessageOne::from_bytes(&message_one_bytes).expect("deserialization failed");
 //! let (responder, message_two) =
 //!     Responder::<DefaultCipherSuite>::start(&input, &message_one, &mut responder_rng)
 //!        .expect("Error with Responder::start()");
@@ -152,9 +152,9 @@
 //! # let input = Input::new(b"password", b"initiator", b"responder");
 //! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! # use pake_kem::Initiator;
-//! # use rand_core::OsRng;
+//! # use rand_core::UnwrapErr;
 //! #
-//! # let mut initiator_rng = OsRng;
+//! # let mut initiator_rng = UnwrapErr(getrandom::SysRng);
 //! # let (initiator, message_one) = Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng)
 //! #    .expect("Error with Initiator::start()");
 //! # let message_one_bytes = message_one.as_bytes();
@@ -162,8 +162,8 @@
 //! # use pake_kem::MessageOne;
 //! # use pake_kem::Responder;
 //! #
-//! # let mut responder_rng = OsRng;
-//! # let message_one = MessageOne::from_bytes(&message_one_bytes);
+//! # let mut responder_rng = UnwrapErr(getrandom::SysRng);
+//! # let message_one = MessageOne::from_bytes(&message_one_bytes).expect("deserialization failed");
 //! # let (responder, message_two) =
 //! #     Responder::<DefaultCipherSuite>::start(&input, &message_one, &mut responder_rng)
 //! #        .expect("Error with Responder::start()");
@@ -171,7 +171,7 @@
 //! # // Send message_two_bytes over the wire to the initiator
 //! use pake_kem::MessageTwo;
 //!
-//! let message_two = MessageTwo::from_bytes(&message_two_bytes);
+//! let message_two = MessageTwo::from_bytes(&message_two_bytes).expect("deserialization failed");
 //! let (initiator_output, message_three) =
 //!     initiator.finish(&message_two, &mut initiator_rng)
 //!         .expect("Error with Initiator::finish()");
@@ -200,9 +200,9 @@
 //! # let input = Input::new(b"password", b"initiator", b"responder");
 //! # use pake_kem::EncodedSizeUser; // Needed for calling as_bytes()
 //! # use pake_kem::Initiator;
-//! # use rand_core::OsRng;
+//! # use rand_core::UnwrapErr;
 //! #
-//! # let mut initiator_rng = OsRng;
+//! # let mut initiator_rng = UnwrapErr(getrandom::SysRng);
 //! # let (initiator, message_one) = Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng)
 //! #    .expect("Error with Initiator::start()");
 //! # let message_one_bytes = message_one.as_bytes();
@@ -210,8 +210,8 @@
 //! # use pake_kem::MessageOne;
 //! # use pake_kem::Responder;
 //! #
-//! # let mut responder_rng = OsRng;
-//! # let message_one = MessageOne::from_bytes(&message_one_bytes);
+//! # let mut responder_rng = UnwrapErr(getrandom::SysRng);
+//! # let message_one = MessageOne::from_bytes(&message_one_bytes).expect("deserialization failed");
 //! # let (responder, message_two) =
 //! #     Responder::<DefaultCipherSuite>::start(&input, &message_one, &mut responder_rng)
 //! #        .expect("Error with Responder::start()");
@@ -219,7 +219,7 @@
 //! # // Send message_two_bytes over the wire to the initiator
 //! # use pake_kem::MessageTwo;
 //! #
-//! # let message_two = MessageTwo::from_bytes(&message_two_bytes);
+//! # let message_two = MessageTwo::from_bytes(&message_two_bytes).expect("deserialization failed");
 //! # let (initiator_output, message_three) =
 //! #     initiator.finish(&message_two, &mut initiator_rng)
 //! #         .expect("Error with Initiator::finish()");
@@ -227,7 +227,7 @@
 //! # // Send message_three_bytes over the wire to the responder
 //! use pake_kem::MessageThree;
 //!
-//! let message_three = MessageThree::from_bytes(&message_three_bytes);
+//! let message_three = MessageThree::from_bytes(&message_three_bytes).expect("deserialization failed");
 //! let responder_output = responder.finish(&message_three)
 //!    .expect("Error with Responder::finish()");
 //! ```
@@ -253,9 +253,26 @@ pub use pake::CPaceRistretto255;
 pub use protocol::{CipherSuite, DefaultCipherSuite, Initiator, Input, Output, Responder};
 
 // Re-exports
+pub use getrandom;
 pub use hkdf::hmac::digest::array::Array;
-pub use ml_kem::EncodedSizeUser;
 pub use rand_core;
+
+use ml_kem::array::{Array as MlKemArray, ArraySize};
+
+/// Type alias for the encoded form of a type implementing [`EncodedSizeUser`].
+pub type Encoded<T> = MlKemArray<u8, <T as EncodedSizeUser>::EncodedSize>;
+
+/// Trait for types that can be serialized to/from a fixed-size byte array.
+pub trait EncodedSizeUser {
+    /// The size of the encoded form.
+    type EncodedSize: ArraySize;
+    /// Serialize to bytes.
+    fn as_bytes(&self) -> Encoded<Self>;
+    /// Deserialize from bytes.
+    fn from_bytes(enc: &Encoded<Self>) -> Result<Self, crate::PakeKemError>
+    where
+        Self: Sized;
+}
 
 #[cfg(test)]
 mod tests;
