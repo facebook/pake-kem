@@ -6,9 +6,9 @@
 // of this source tree. You may select, at your option, one of the above-listed
 // licenses.
 
-use ml_kem::EncodedSizeUser;
-use pake_kem::rand_core::OsRng;
+use pake_kem::rand_core::UnwrapErr;
 use pake_kem::DefaultCipherSuite;
+use pake_kem::EncodedSizeUser;
 use pake_kem::Initiator;
 use pake_kem::Input;
 use pake_kem::MessageOne;
@@ -19,8 +19,8 @@ use pake_kem::Responder;
 fn main() {
     let input = Input::new(b"password", b"initiator", b"responder");
 
-    let mut initiator_rng = OsRng;
-    let mut responder_rng = OsRng;
+    let mut initiator_rng = UnwrapErr(getrandom::SysRng);
+    let mut responder_rng = UnwrapErr(getrandom::SysRng);
 
     let (initiator, message_one) =
         Initiator::<DefaultCipherSuite>::start(&input, &mut initiator_rng)
@@ -39,7 +39,8 @@ fn main() {
         message_one_serialized.len(),
         hex::encode(message_one_serialized)
     );
-    let message_one_deserialized = MessageOne::from_bytes(&message_one_serialized);
+    let message_one_deserialized =
+        MessageOne::from_bytes(&message_one_serialized).expect("Failed to deserialize MessageOne");
 
     let (responder, message_two) = Responder::<DefaultCipherSuite>::start(
         &input,
@@ -60,9 +61,11 @@ fn main() {
         message_two_serialized.len(),
         hex::encode(message_two_serialized)
     );
-    let message_two_deserialized = MessageTwo::from_bytes(&message_two_serialized);
+    let message_two_deserialized =
+        MessageTwo::from_bytes(&message_two_serialized).expect("Failed to deserialize MessageTwo");
 
-    let initiator = Initiator::<DefaultCipherSuite>::from_bytes(&initiator_serialized);
+    let initiator = Initiator::<DefaultCipherSuite>::from_bytes(&initiator_serialized)
+        .expect("Failed to deserialize Initiator");
     let (initiator_output, message_three) = initiator
         .finish(&message_two_deserialized, &mut initiator_rng)
         .expect("Error with Initiator::finish()");
@@ -73,9 +76,11 @@ fn main() {
         message_three_serialized.len(),
         hex::encode(message_three_serialized)
     );
-    let message_three_deserialized = MessageThree::from_bytes(&message_three_serialized);
+    let message_three_deserialized = MessageThree::from_bytes(&message_three_serialized)
+        .expect("Failed to deserialize MessageThree");
 
     let responder_output = Responder::<DefaultCipherSuite>::from_bytes(&responder_serialized)
+        .expect("Failed to deserialize Responder")
         .finish(&message_three_deserialized)
         .expect("Error with Responder::finish()");
 

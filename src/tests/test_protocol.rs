@@ -15,7 +15,7 @@ use crate::MessageOne;
 use crate::MessageThree;
 use crate::MessageTwo;
 use crate::Responder;
-use rand_core::OsRng;
+use rand_core::UnwrapErr;
 
 #[test]
 fn test_protocol() {
@@ -56,7 +56,7 @@ fn test_protocol() {
 }
 
 fn run_protocol(initiator_input: Input, responder_input: Input) -> Result<(), PakeKemError> {
-    let mut initiator_rng = OsRng;
+    let mut initiator_rng = UnwrapErr(getrandom::SysRng);
     let (initiator, message_one) =
         Initiator::<DefaultCipherSuite>::start(&initiator_input, &mut initiator_rng)
             .expect("Error with Initiator::start()");
@@ -64,20 +64,20 @@ fn run_protocol(initiator_input: Input, responder_input: Input) -> Result<(), Pa
 
     // Send message_one_bytes over the wire to the responder
 
-    let mut responder_rng = OsRng;
-    let message_one = MessageOne::from_bytes(&message_one_bytes);
+    let mut responder_rng = UnwrapErr(getrandom::SysRng);
+    let message_one = MessageOne::from_bytes(&message_one_bytes).unwrap();
     let (responder, message_two) =
         Responder::<DefaultCipherSuite>::start(&responder_input, &message_one, &mut responder_rng)
             .expect("Error with Responder::start()");
     let message_two_bytes = message_two.as_bytes();
     // Send message_two_bytes over the wire to the initiator
 
-    let message_two = MessageTwo::from_bytes(&message_two_bytes);
+    let message_two = MessageTwo::from_bytes(&message_two_bytes).unwrap();
     let (initiator_output, message_three) = initiator.finish(&message_two, &mut initiator_rng)?;
     let message_three_bytes = message_three.as_bytes();
     // Send message_three_bytes over the wire to the responder
 
-    let message_three = MessageThree::from_bytes(&message_three_bytes);
+    let message_three = MessageThree::from_bytes(&message_three_bytes).unwrap();
     let responder_output = responder.finish(&message_three)?;
 
     match initiator_output.0 == responder_output.0 {

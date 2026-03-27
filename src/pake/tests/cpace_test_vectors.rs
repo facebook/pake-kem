@@ -6,7 +6,7 @@
 // of this source tree. You may select, at your option, one of the above-listed
 // licenses.
 
-//! Test vectors for CPace with Ristretto255 and SHA-512,
+//! Test vectors for `CPace` with `Ristretto255` and `SHA-512`,
 //! taken from <https://www.ietf.org/archive/id/draft-irtf-cfrg-cpace-12.txt>
 
 // Taken from A.1.2.1 of the draft.
