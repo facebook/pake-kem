@@ -9,11 +9,11 @@ categories = ["cryptography"]
 keywords = ["cryptography"]
 
 [dependencies]
-curve25519-dalek = { version = "=5.0.0-pre.6", features = ["rand_core"] }
-hkdf = "=0.13.0-rc.5"
+curve25519-dalek = { version = "5", features = ["rand_core"] }
+hkdf = "0.13"
 rand_core = { version = "0.10", default-features = false }
-ml-kem = "0.3.0-rc.0"
-sha2 = "0.11.0-pre.4"
+ml-kem = "0.3.2"
+sha2 = "0.11"
 thiserror = "1"
 getrandom = { version = "0.4", features = ["sys_rng"] }
 
