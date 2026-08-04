@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-pre.7 (August 4, 2026)
+
+* Update to released versions of RustCrypto crates: `ml-kem` v0.3.2, `curve25519-dalek` v5, `hkdf` v0.13, `sha2` v0.11
+
 ## 0.1.0-pre.6 (March 26, 2026)
 
 * Upgrade `ml-kem` to v0.3.0-rc.0
